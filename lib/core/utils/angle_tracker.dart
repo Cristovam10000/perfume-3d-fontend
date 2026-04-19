@@ -26,6 +26,12 @@ class AngleTracker {
   int get coveredCount => _covered.where((b) => b).length;
   double get coverageRatio => coveredCount / bins;
 
+  /// True se a fatia atual já foi capturada.
+  bool get currentBinCovered => _covered[currentBin];
+
+  /// True quando todas as fatias foram capturadas.
+  bool get isComplete => _covered.every((b) => b);
+
   /// Ângulo acumulado em graus (0..360).
   double get currentAngleDegrees => _normalize(_yawRadians) * 180 / math.pi;
 
@@ -58,17 +64,13 @@ class AngleTracker {
   /// Sugere direção para o próximo ângulo ainda não coberto mais próximo.
   /// Retorna null se todos estiverem cobertos.
   String? nextSuggestion() {
-    if (_covered.every((b) => b)) return null;
+    if (isComplete) return null;
     final current = currentBin;
     for (int offset = 1; offset <= bins; offset++) {
       final right = (current + offset) % bins;
       final left = (current - offset + bins) % bins;
-      if (!_covered[right]) {
-        return 'Gire ~${(offset * 360 / bins).round()}° para a direita.';
-      }
-      if (!_covered[left]) {
-        return 'Gire ~${(offset * 360 / bins).round()}° para a esquerda.';
-      }
+      if (!_covered[right]) return 'Gire lentamente para a direita.';
+      if (!_covered[left]) return 'Gire lentamente para a esquerda.';
     }
     return null;
   }

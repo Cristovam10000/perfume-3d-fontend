@@ -4,118 +4,177 @@ import 'package:camera/camera.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
-import '../../../../core/utils/angle_tracker.dart';
 import '../../../../core/utils/frame_analyzer.dart';
 import '../../../../core/utils/image_quality_analyzer.dart';
+import '../../../../core/utils/orb_similarity_tracker.dart';
+import '../../../../core/utils/tilt_tracker.dart';
 
 class LiveCaptureState {
   final List<QualityMessage> messages;
-  final List<bool> coverage;
-  final double currentAngleDegrees;
   final double brightness;
   final double sharpness;
+  final int capturesCount;
+  final AngleVerdict? verdict;
+  final int matchCount;
+  final bool readyToCapture;
 
   const LiveCaptureState({
     this.messages = const [],
-    this.coverage = const [],
-    this.currentAngleDegrees = 0,
     this.brightness = 0,
     this.sharpness = 0,
+    this.capturesCount = 0,
+    this.verdict,
+    this.matchCount = 0,
+    this.readyToCapture = false,
   });
 
   LiveCaptureState copyWith({
     List<QualityMessage>? messages,
-    List<bool>? coverage,
-    double? currentAngleDegrees,
     double? brightness,
     double? sharpness,
+    int? capturesCount,
+    AngleVerdict? verdict,
+    int? matchCount,
+    bool? readyToCapture,
   }) {
     return LiveCaptureState(
       messages: messages ?? this.messages,
-      coverage: coverage ?? this.coverage,
-      currentAngleDegrees: currentAngleDegrees ?? this.currentAngleDegrees,
       brightness: brightness ?? this.brightness,
       sharpness: sharpness ?? this.sharpness,
+      capturesCount: capturesCount ?? this.capturesCount,
+      verdict: verdict ?? this.verdict,
+      matchCount: matchCount ?? this.matchCount,
+      readyToCapture: readyToCapture ?? this.readyToCapture,
     );
   }
-
-  int get coveredCount => coverage.where((b) => b).length;
-  int get totalBins => coverage.length;
 }
 
 class LiveCaptureController extends StateNotifier<LiveCaptureState> {
   LiveCaptureController() : super(const LiveCaptureState()) {
-    state = state.copyWith(coverage: _tracker.coverage);
-    _gyroSub = gyroscopeEventStream().listen(_onGyro);
+    _accelSub = accelerometerEventStream().listen(_onAccel);
   }
 
   final FrameAnalyzer _analyzer = FrameAnalyzer();
-  final AngleTracker _tracker = AngleTracker(bins: 12);
+  final TiltTracker _tilt = TiltTracker();
+  final OrbSimilarityTracker _similarity = OrbSimilarityTracker();
 
-  StreamSubscription<GyroscopeEvent>? _gyroSub;
+  StreamSubscription<AccelerometerEvent>? _accelSub;
 
-  // Limites heurísticos. Ajustáveis conforme calibração do dispositivo.
+  // Limites heurísticos.
   static const double _darkThreshold = 60;
   static const double _brightThreshold = 210;
-  static const double _blurryThreshold = 60; // variância do Laplaciano
-  static const double _reflectiveRatio = 0.15; // 15% de pixels saturados
+  static const double _blurryThreshold = 60;
+  static const double _reflectiveRatio = 0.15;
+  static const double _tiltTolerance = 20;
 
-  DateTime _lastFrameAt = DateTime.fromMillisecondsSinceEpoch(0);
+  // Throttling de trabalho pesado.
+  static const Duration _analyzerInterval = Duration(milliseconds: 200);
+  static const Duration _orbInterval = Duration(milliseconds: 500);
+
+  DateTime _lastAnalyzerAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastOrbAt = DateTime.fromMillisecondsSinceEpoch(0);
   bool _analyzing = false;
+  bool _classifyingOrb = false;
 
-  void _onGyro(GyroscopeEvent e) {
-    // Em retrato, o eixo Y é aproximadamente o eixo vertical do mundo,
-    // que representa o usuário girando em torno do objeto.
-    _tracker.onGyro(yawRate: e.y);
+  FrameQuality? _lastQuality;
+  SimilarityResult? _lastSim;
+
+  void _onAccel(AccelerometerEvent e) {
+    _tilt.onAccel(x: e.x, y: e.y, z: e.z);
+  }
+
+  /// Processa um frame ao vivo. Análise leve ~5fps, ORB ~2fps.
+  void processFrame(CameraImage frame) {
+    final now = DateTime.now();
+    bool updated = false;
+
+    if (!_analyzing && now.difference(_lastAnalyzerAt) >= _analyzerInterval) {
+      _lastAnalyzerAt = now;
+      _analyzing = true;
+      try {
+        _lastQuality = _analyzer.analyze(frame);
+        updated = true;
+      } finally {
+        _analyzing = false;
+      }
+    }
+
+    if (!_classifyingOrb && now.difference(_lastOrbAt) >= _orbInterval) {
+      _lastOrbAt = now;
+      _classifyingOrb = true;
+      try {
+        _lastSim = _similarity.classifyFrame(frame);
+        updated = true;
+      } finally {
+        _classifyingOrb = false;
+      }
+    }
+
+    if (updated) _publishState();
+  }
+
+  void _publishState() {
+    final q = _lastQuality;
+    final sim = _lastSim;
+    final msgs = _buildMessages(q, sim);
     state = state.copyWith(
-      coverage: _tracker.coverage,
-      currentAngleDegrees: _tracker.currentAngleDegrees,
+      messages: msgs,
+      brightness: q?.brightness ?? 0,
+      sharpness: q?.sharpness ?? 0,
+      capturesCount: _similarity.capturesCount,
+      verdict: sim?.verdict,
+      matchCount: sim?.bestMatches ?? 0,
+      readyToCapture: _isReady(q, sim),
     );
   }
 
-  /// Processa um frame da câmera. Throttling para ~5fps.
-  void processFrame(CameraImage frame) {
-    if (_analyzing) return;
-    final now = DateTime.now();
-    if (now.difference(_lastFrameAt).inMilliseconds < 200) return;
-    _lastFrameAt = now;
-    _analyzing = true;
-    try {
-      final q = _analyzer.analyze(frame);
-      final msgs = _buildMessages(q);
-      state = state.copyWith(
-        messages: msgs,
-        brightness: q.brightness,
-        sharpness: q.sharpness,
-      );
-    } finally {
-      _analyzing = false;
-    }
+  bool _isReady(FrameQuality? q, SimilarityResult? sim) {
+    if (q == null) return false;
+    if (q.brightness < _darkThreshold) return false;
+    if (q.sharpness < _blurryThreshold) return false;
+    if (!_tilt.isLevel(tolerance: _tiltTolerance)) return false;
+    if (sim == null) return true;
+    return sim.verdict == AngleVerdict.newAngle ||
+        sim.verdict == AngleVerdict.noReference;
   }
 
-  List<QualityMessage> _buildMessages(FrameQuality q) {
+  List<QualityMessage> _buildMessages(FrameQuality? q, SimilarityResult? sim) {
     final list = <QualityMessage>[];
+    if (q == null) {
+      list.add(const QualityMessage(
+        'Preparando análise…',
+        QualityLevel.ok,
+      ));
+      return list;
+    }
 
+    // Bloqueadores: iluminação insuficiente.
     if (q.brightness < _darkThreshold) {
       list.add(const QualityMessage(
         'Ambiente muito escuro. Aumente a iluminação.',
         QualityLevel.blocker,
       ));
-    } else if (q.brightness > _brightThreshold) {
+    }
+
+    // Inclinação do celular (acelerômetro).
+    final tiltMsg = _tilt.correction(tolerance: _tiltTolerance);
+    if (tiltMsg != null) {
+      list.add(QualityMessage(tiltMsg, QualityLevel.warning));
+    }
+
+    // Avisos de qualidade.
+    if (q.brightness > _brightThreshold) {
       list.add(const QualityMessage(
         'Iluminação muito forte. Evite luz direta sobre o perfume.',
         QualityLevel.warning,
       ));
     }
-
     if (q.saturatedRatio > _reflectiveRatio) {
       list.add(const QualityMessage(
         'Muito reflexo no vidro. Ajuste o ângulo da luz.',
         QualityLevel.warning,
       ));
     }
-
-    // Só avalia nitidez se a cena tem luz mínima (em escuro o Laplaciano cai).
     if (q.brightness >= _darkThreshold && q.sharpness < _blurryThreshold) {
       list.add(const QualityMessage(
         'Imagem tremida. Segure firme e aguarde focar.',
@@ -123,37 +182,59 @@ class LiveCaptureController extends StateNotifier<LiveCaptureState> {
       ));
     }
 
-    // Sugestão de próximo ângulo (quando nenhuma das piores mensagens).
+    // Orientação principal baseada no ORB — só se não houver blocker.
     if (list.every((m) => m.level != QualityLevel.blocker)) {
-      final hint = _tracker.nextSuggestion();
-      if (hint != null && _tracker.coveredCount > 0) {
-        list.add(QualityMessage(hint, QualityLevel.ok));
+      final v = sim?.verdict;
+      if (v == null || v == AngleVerdict.noReference) {
+        list.add(const QualityMessage(
+          'Tire a primeira foto com o perfume bem enquadrado.',
+          QualityLevel.ok,
+        ));
+      } else if (v == AngleVerdict.duplicate) {
+        list.add(const QualityMessage(
+          'Este ângulo já foi capturado. Gire o perfume para outro lado.',
+          QualityLevel.warning,
+        ));
+      } else if (v == AngleVerdict.partialOverlap) {
+        list.add(const QualityMessage(
+          'Quase um novo ângulo — gire um pouco mais o perfume.',
+          QualityLevel.ok,
+        ));
+      } else if (v == AngleVerdict.newAngle) {
+        list.add(const QualityMessage(
+          'Novo ângulo detectado — pode capturar.',
+          QualityLevel.ok,
+        ));
       }
     }
 
     if (list.isEmpty) {
       list.add(const QualityMessage(
-        'Boa! Pode capturar este ângulo.',
+        'Pronto para capturar.',
         QualityLevel.ok,
       ));
     }
     return list;
   }
 
-  /// Marca a fatia atual como capturada (chamar quando o usuário tira foto).
-  void markCaptured() {
-    _tracker.markCurrent();
-    state = state.copyWith(coverage: _tracker.coverage);
+  /// Registra uma foto recém-capturada. Roda assíncrono porque o decode
+  /// do JPEG + ORB custa 200-500ms.
+  Future<void> markCapturedFromFile(String path) async {
+    await Future(() => _similarity.registerCaptureFromFile(path));
+    _publishState();
   }
 
   void reset() {
-    _tracker.reset();
-    state = LiveCaptureState(coverage: _tracker.coverage);
+    _similarity.reset();
+    _lastSim = null;
+    _lastQuality = null;
+    state = const LiveCaptureState();
   }
 
   @override
   void dispose() {
-    _gyroSub?.cancel();
+    _accelSub?.cancel();
+    _similarity.dispose();
     super.dispose();
   }
 }

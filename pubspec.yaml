@@ -29,6 +29,10 @@ dependencies:
   # Sensores (giroscópio para cobertura de ângulos)
   sensors_plus: ^6.0.1
 
+  # Visão computacional — ORB feature detection para
+  # identificar ângulos distintos do perfume entre capturas.
+  opencv_dart: ^1.3.0
+
   # 3D viewer
   model_viewer_plus: ^1.8.0
 

@@ -12,6 +12,7 @@ import '../../../../shared/widgets/image_counter.dart';
 import '../../../../shared/widgets/primary_button.dart';
 import '../../../../shared/widgets/quality_banner.dart';
 import '../state/capture_controller.dart';
+import '../state/live_capture_controller.dart';
 
 class CaptureCameraPage extends ConsumerStatefulWidget {
   const CaptureCameraPage({super.key});
@@ -26,6 +27,7 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
   Future<void>? _initFuture;
   String? _cameraError;
   bool _takingPicture = false;
+  bool _streaming = false;
 
   @override
   void initState() {
@@ -37,6 +39,7 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _stopStream();
     _controller?.dispose();
     super.dispose();
   }
@@ -46,6 +49,7 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
     if (state == AppLifecycleState.inactive) {
+      _stopStream();
       controller.dispose();
     } else if (state == AppLifecycleState.resumed) {
       _initFuture = _initCamera();
@@ -68,7 +72,7 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
         back,
         ResolutionPreset.high,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.jpeg,
+        imageFormatGroup: ImageFormatGroup.yuv420,
       );
       await controller.initialize();
       if (!mounted) {
@@ -79,9 +83,29 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
         _controller = controller;
         _cameraError = null;
       });
+      _startStream();
     } catch (e) {
       setState(() => _cameraError = 'Falha ao iniciar câmera: $e');
     }
+  }
+
+  void _startStream() {
+    final ctrl = _controller;
+    if (ctrl == null || _streaming) return;
+    _streaming = true;
+    ctrl.startImageStream((frame) {
+      if (!mounted) return;
+      ref.read(liveCaptureControllerProvider.notifier).processFrame(frame);
+    });
+  }
+
+  Future<void> _stopStream() async {
+    final ctrl = _controller;
+    if (ctrl == null || !_streaming) return;
+    _streaming = false;
+    try {
+      await ctrl.stopImageStream();
+    } catch (_) {}
   }
 
   Future<void> _takePicture() async {
@@ -93,10 +117,15 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
     }
     setState(() => _takingPicture = true);
     try {
+      // takePicture exige pausar o stream no plugin `camera` atual.
+      await _stopStream();
       final xfile = await controller.takePicture();
       ref
           .read(captureControllerProvider.notifier)
           .addCapturedFile(File(xfile.path));
+      await ref
+          .read(liveCaptureControllerProvider.notifier)
+          .markCapturedFromFile(xfile.path);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -104,13 +133,15 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
         );
       }
     } finally {
+      _startStream();
       if (mounted) setState(() => _takingPicture = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final state = ref.watch(captureControllerProvider);
+    final capture = ref.watch(captureControllerProvider);
+    final live = ref.watch(liveCaptureControllerProvider);
     final controller = ref.read(captureControllerProvider.notifier);
     final scheme = Theme.of(context).colorScheme;
 
@@ -120,7 +151,7 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: ImageCounter(count: state.count),
+            child: ImageCounter(count: capture.count),
           ),
           Expanded(
             child: Padding(
@@ -160,10 +191,12 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
                         ),
                         const CaptureOverlay(
                           hint:
-                              'Centralize o perfume no quadro e gire em pequenos ângulos.',
+                              'Centralize o perfume. Gire em torno dele em pequenos ângulos.',
                         ),
                         if (_takingPicture)
-                          Container(color: Colors.black.withValues(alpha: 0.35)),
+                          Container(
+                            color: Colors.black.withValues(alpha: 0.35),
+                          ),
                       ],
                     );
                   },
@@ -176,14 +209,14 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (final m in state.qualityMessages) ...[
+                for (final m in live.messages.take(2)) ...[
                   QualityBanner(message: m),
                   const SizedBox(height: 6),
                 ],
-                if (state.error != null) ...[
+                if (capture.error != null) ...[
                   const SizedBox(height: 4),
                   Text(
-                    state.error!,
+                    capture.error!,
                     style: TextStyle(color: scheme.error, fontSize: 12),
                   ),
                 ],
@@ -221,7 +254,7 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
           SecondaryButton(
             label: 'Avançar para revisão',
             icon: Icons.arrow_forward,
-            onPressed: state.canReview
+            onPressed: capture.canReview
                 ? () => context.goNamed(AppRoutes.captureReviewName)
                 : null,
           ),
