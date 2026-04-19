@@ -63,9 +63,12 @@ class LiveCaptureController extends StateNotifier<LiveCaptureState> {
   // Limites heurísticos.
   static const double _darkThreshold = 60;
   static const double _brightThreshold = 210;
-  static const double _blurryThreshold = 60;
+  static const double _blurryThreshold = 25;
   static const double _reflectiveRatio = 0.15;
   static const double _tiltTolerance = 20;
+  // Blur só vira alerta após N leituras consecutivas abaixo do limiar
+  // (evita flicker em frames isolados onde o Laplaciano cai por acaso).
+  static const int _blurStreakThreshold = 3;
 
   // Throttling de trabalho pesado.
   static const Duration _analyzerInterval = Duration(milliseconds: 200);
@@ -78,6 +81,7 @@ class LiveCaptureController extends StateNotifier<LiveCaptureState> {
 
   FrameQuality? _lastQuality;
   SimilarityResult? _lastSim;
+  int _blurStreak = 0;
 
   void _onAccel(AccelerometerEvent e) {
     _tilt.onAccel(x: e.x, y: e.y, z: e.z);
@@ -92,7 +96,13 @@ class LiveCaptureController extends StateNotifier<LiveCaptureState> {
       _lastAnalyzerAt = now;
       _analyzing = true;
       try {
-        _lastQuality = _analyzer.analyze(frame);
+        final q = _analyzer.analyze(frame);
+        _lastQuality = q;
+        if (q.brightness >= _darkThreshold && q.sharpness < _blurryThreshold) {
+          _blurStreak++;
+        } else {
+          _blurStreak = 0;
+        }
         updated = true;
       } finally {
         _analyzing = false;
@@ -175,7 +185,9 @@ class LiveCaptureController extends StateNotifier<LiveCaptureState> {
         QualityLevel.warning,
       ));
     }
-    if (q.brightness >= _darkThreshold && q.sharpness < _blurryThreshold) {
+    if (q.brightness >= _darkThreshold &&
+        q.sharpness < _blurryThreshold &&
+        _blurStreak >= _blurStreakThreshold) {
       list.add(const QualityMessage(
         'Imagem tremida. Segure firme e aguarde focar.',
         QualityLevel.warning,

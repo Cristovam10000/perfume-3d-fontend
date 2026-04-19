@@ -55,8 +55,8 @@ class OrbSimilarityTracker {
 
   OrbSimilarityTracker({
     this.nFeatures = 500,
-    this.duplicateThreshold = 60,
-    this.partialThreshold = 20,
+    this.duplicateThreshold = 90,
+    this.partialThreshold = 40,
     this.targetWidth = 480,
     this.ratioThreshold = 0.75,
   }) {
