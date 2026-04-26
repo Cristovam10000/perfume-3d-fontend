@@ -14,7 +14,6 @@ class PerfumeApp extends ConsumerWidget {
       title: 'Perfume 3D MVP',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
       routerConfig: router,
     );
   }
