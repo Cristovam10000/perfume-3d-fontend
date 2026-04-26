@@ -1,52 +1,54 @@
-# Documentação técnica — `perfume_3d_mvp`
+# Documentacao tecnica - `perfume_3d_mvp`
 
-Bem-vindo. Esta pasta reúne a documentação técnica completa do aplicativo **Perfume 3D MVP**, um projeto acadêmico (TCC) em Flutter que captura imagens guiadas de um perfume, envia para um backend que gera um modelo 3D, e apresenta esse modelo ao usuário para rotação e zoom.
+Esta pasta descreve o estado atual do front-end Flutter em `C:\TCC\front`.
 
-A documentação é pensada para quem **nunca viu o projeto** — cada página explica o *o quê*, o *por quê* e o *como*, com referências diretas ao código. Tudo está em português brasileiro, seguindo a convenção do restante do projeto.
+O projeto evoluiu: ele nao e mais apenas uma jornada linear de captura 3D. A tela inicial atual e um painel comercial para venda de perfumes, com clientes, cobrancas, produtos, notificacoes, wizard de venda e visualizacao 3D de produtos. O fluxo antigo de captura, upload, processamento e viewer 3D continua no codigo como modulo especializado.
 
 ## Ordem sugerida de leitura
 
-Para quem está entrando agora:
+1. [01 - Visao geral](01-visao-geral.md): o que o app faz hoje.
+2. [04 - Estrutura de pastas](04-estrutura-de-pastas.md): mapa dos arquivos atuais.
+3. [05 - Arquitetura](05-arquitetura.md): camadas, providers e responsabilidades.
+4. [06 - Bootstrap e roteamento](06-bootstrap-e-roteamento.md): inicializacao, tema e rotas.
+5. [18 - Feature `sales`](18-feature-sales.md): modulo principal da experiencia atual.
+6. [09 - Feature `product_capture`](09-feature-product-capture.md), [10 - `processing`](10-feature-processing.md) e [11 - `product_viewer`](11-feature-product-viewer.md): pipeline 3D.
+7. [16 - Contrato do backend](16-contrato-backend.md): endpoints usados pelo pipeline de captura.
 
-1. [01 — Visão geral](01-visao-geral.md): contexto, jornada do usuário, escopo do MVP.
-2. [05 — Arquitetura](05-arquitetura.md): como o código está organizado em camadas.
-3. [04 — Estrutura de pastas](04-estrutura-de-pastas.md): mapa de cada arquivo em `lib/`.
-4. [06 — Bootstrap e roteamento](06-bootstrap-e-roteamento.md): como o app sobe e navega.
-5. [09 — Feature de captura](09-feature-product-capture.md): o coração do app, onde tudo acontece.
-6. Demais arquivos conforme a necessidade.
+## Indice completo
 
-## Índice completo
-
-| # | Arquivo | Conteúdo |
+| # | Documento | Assunto |
 |---|---|---|
-| 01 | [Visão geral](01-visao-geral.md) | Objetivo, jornada do usuário, escopo do MVP. |
-| 02 | [Stack tecnológico](02-stack-tecnologico.md) | Todas as dependências do [pubspec.yaml](../pubspec.yaml) com justificativa. |
-| 03 | [Inicialização do projeto](03-inicializacao-do-projeto.md) | Como o projeto foi criado e como rodá-lo. |
-| 04 | [Estrutura de pastas](04-estrutura-de-pastas.md) | Árvore de `lib/` com papel de cada arquivo. |
-| 05 | [Arquitetura](05-arquitetura.md) | Clean Architecture + Feature-First + Riverpod. |
-| 06 | [Bootstrap e roteamento](06-bootstrap-e-roteamento.md) | `main.dart`, `app.dart`, rotas, guards, tema. |
-| 07 | [Camada `core/`](07-camada-core.md) | Constantes, exceptions, Dio, utilitários (frame, tilt, ORB, qualidade). |
-| 08 | [Feature `home`](08-feature-home.md) | Tela inicial. |
-| 09 | [Feature `product_capture`](09-feature-product-capture.md) | Captura guiada com feedback ao vivo. |
-| 10 | [Feature `processing`](10-feature-processing.md) | Polling do status do job no backend. |
-| 11 | [Feature `product_viewer`](11-feature-product-viewer.md) | Visualizador 3D. |
-| 12 | [Widgets compartilhados](12-widgets-compartilhados.md) | Componentes reutilizáveis de UI. |
-| 13 | [Fluxos de dados](13-fluxos-de-dados.md) | Diagramas textuais dos três fluxos principais. |
-| 14 | [Histórico de mudanças](14-historico-de-mudancas.md) | Narrativa dos 3 commits e o pivot walk-around → ORB. |
-| 15 | [Configuração de plataformas](15-configuracao-de-plataformas.md) | Android, iOS, demais plataformas. |
-| 16 | [Contrato do backend](16-contrato-backend.md) | Endpoints que o app consome. |
-| 17 | [Glossário](17-glossario.md) | ORB, Laplaciano, YUV420, Lowe's ratio, etc. |
+| 01 | [Visao geral](01-visao-geral.md) | Produto atual, jornadas e escopo. |
+| 02 | [Stack tecnologico](02-stack-tecnologico.md) | Dependencias, SDKs e uso de cada pacote. |
+| 03 | [Inicializacao do projeto](03-inicializacao-do-projeto.md) | Como preparar, rodar e testar. |
+| 04 | [Estrutura de pastas](04-estrutura-de-pastas.md) | Arvore atual de `lib/` e `test/`. |
+| 05 | [Arquitetura](05-arquitetura.md) | Feature-first, Riverpod, rotas e estado. |
+| 06 | [Bootstrap e roteamento](06-bootstrap-e-roteamento.md) | `main`, `MaterialApp.router`, tema e `GoRouter`. |
+| 07 | [Camada `core`](07-camada-core.md) | Constantes, Dio, formatadores e algoritmos. |
+| 08 | [Feature `home`](08-feature-home.md) | Home antiga de captura, hoje fora da rota inicial. |
+| 09 | [Feature `product_capture`](09-feature-product-capture.md) | Captura guiada com camera, sensores e ORB. |
+| 10 | [Feature `processing`](10-feature-processing.md) | Polling de processamento do backend. |
+| 11 | [Feature `product_viewer`](11-feature-product-viewer.md) | Viewer 3D final do pipeline de captura. |
+| 12 | [Widgets compartilhados](12-widgets-compartilhados.md) | Componentes comuns e widgets de vendas. |
+| 13 | [Fluxos de dados](13-fluxos-de-dados.md) | Como dados passam pelo app. |
+| 14 | [Historico de mudancas](14-historico-de-mudancas.md) | Evolucao do front por commits. |
+| 15 | [Configuracao de plataformas](15-configuracao-de-plataformas.md) | Android, iOS, Web e Desktop. |
+| 16 | [Contrato do backend](16-contrato-backend.md) | API esperada para captura e processamento. |
+| 17 | [Glossario](17-glossario.md) | Termos do dominio, Flutter, CV e vendas. |
+| 18 | [Feature `sales`](18-feature-sales.md) | Dashboard, clientes, vendas, cobranca e produtos. |
 
-## Convenções desta documentação
+## Convencoes
 
-- **Idioma**: português brasileiro, mesmo para termos técnicos sempre que existir tradução estabelecida. Jargões em inglês ficam em *itálico* e aparecem definidos no [glossário](17-glossario.md).
-- **Referências a código**: usamos markdown clicável no formato `[nome-do-arquivo](../caminho/arquivo.dart)` — relativo à raiz do repositório. Quando apontamos para uma linha específica, adicionamos `#Lnumero`.
-- **Trechos de código**: colamos o mínimo necessário para ilustrar. Para entender o código completo, o link levará você ao arquivo real.
-- **Tempo verbal**: tudo escrito no presente, como documentação "viva" do estado atual do código. O único lugar onde descrevemos o passado é [14 — Histórico de mudanças](14-historico-de-mudancas.md).
-- **Arquivos deletados** (ex.: `angle_tracker.dart`, `coverage_wheel.dart` removidos no commit `a8b85e7`) são mencionados apenas em [14 — Histórico](14-historico-de-mudancas.md). Em qualquer outro lugar, presumimos o código como ele está hoje.
+- Caminhos sao relativos a raiz `front/`.
+- O codigo Dart e a fonte canonica; quando houver divergencia, atualize os docs.
+- A feature `sales` usa dados mockados em memoria. A integracao HTTP real ainda pertence apenas ao pipeline de captura/processamento.
+- A documentacao evita prometer comportamento que ainda nao existe: cadastro real, persistencia, autenticacao e sincronizacao remota estao fora do estado atual.
 
-## Como manter esta documentação
+## Como manter
 
-Se você alterar um arquivo de código, atualize também o(s) arquivo(s) `.md` que descrevem ele. Os links clicáveis ajudam a fazer essa varredura: basta `grep`-ar o nome do arquivo `.dart` dentro de `docs/` para encontrar todas as menções.
+Ao mudar uma rota, provider, modelo ou dependencia, atualize pelo menos:
 
-Divergências entre doc e código: o código é a fonte da verdade. Ajuste a doc.
+- [04 - Estrutura de pastas](04-estrutura-de-pastas.md), se arquivos mudarem.
+- [06 - Bootstrap e roteamento](06-bootstrap-e-roteamento.md), se rotas mudarem.
+- [05 - Arquitetura](05-arquitetura.md), se providers/responsabilidades mudarem.
+- O documento da feature afetada.
