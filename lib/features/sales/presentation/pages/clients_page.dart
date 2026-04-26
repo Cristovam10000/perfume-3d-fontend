@@ -161,7 +161,7 @@ class _ClientRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () => context.goNamed(
+      onTap: () => context.pushNamed(
         AppRoutes.clientDetailName,
         pathParameters: {'id': cliente.id},
       ),

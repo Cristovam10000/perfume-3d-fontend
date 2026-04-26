@@ -23,7 +23,7 @@ class HomeDashboardPage extends ConsumerWidget {
           children: [
             CircleIconButton(
               icon: Icons.notifications_none_rounded,
-              onPressed: () => context.goNamed(AppRoutes.notificationsName),
+              onPressed: () => context.pushNamed(AppRoutes.notificationsName),
             ),
             Positioned(
               right: 8,
@@ -55,7 +55,7 @@ class HomeDashboardPage extends ConsumerWidget {
           for (final item in data.vencemHoje.take(3)) ...[
             PaymentDueCard(
               item: item,
-              onTap: () => context.goNamed(
+              onTap: () => context.pushNamed(
                 AppRoutes.saleDetailName,
                 pathParameters: {'id': item.venda.id},
               ),
@@ -70,7 +70,7 @@ class HomeDashboardPage extends ConsumerWidget {
               PaymentDueCard(
                 item: item,
                 danger: true,
-                onTap: () => context.goNamed(
+                onTap: () => context.pushNamed(
                   AppRoutes.saleDetailName,
                   pathParameters: {'id': item.venda.id},
                 ),
@@ -240,7 +240,7 @@ class _QuickActions extends StatelessWidget {
             icon: Icons.receipt_long_outlined,
             color: AppColors.accent,
             bg: AppColors.accentSoft,
-            onTap: () => context.goNamed(AppRoutes.saleNewName),
+            onTap: () => context.pushNamed(AppRoutes.saleNewName),
           ),
         ),
         const SizedBox(width: 9),
@@ -260,7 +260,7 @@ class _QuickActions extends StatelessWidget {
             icon: Icons.camera_alt_outlined,
             color: AppColors.ink,
             bg: AppColors.bgSunken,
-            onTap: () => context.goNamed(
+            onTap: () => context.pushNamed(
               AppRoutes.captureByProductName,
               pathParameters: {'produtoId': data.produtos.first.id},
             ),
@@ -273,7 +273,7 @@ class _QuickActions extends StatelessWidget {
             icon: Icons.view_in_ar_outlined,
             color: AppColors.ink,
             bg: const Color(0xFFE9E0D0),
-            onTap: () => context.goNamed(
+            onTap: () => context.pushNamed(
               AppRoutes.product3dName,
               pathParameters: {'id': data.produtos.first.id},
             ),

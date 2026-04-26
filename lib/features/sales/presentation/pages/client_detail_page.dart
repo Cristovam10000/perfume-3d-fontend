@@ -135,7 +135,7 @@ class ClientDetailPage extends ConsumerWidget {
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: () => context.goNamed(AppRoutes.saleNewName),
+                  onPressed: () => context.pushNamed(AppRoutes.saleNewName),
                   icon: const Icon(Icons.add_shopping_cart_outlined),
                   label: const Text('Nova venda'),
                 ),

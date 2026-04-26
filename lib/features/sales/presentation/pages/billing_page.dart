@@ -62,7 +62,7 @@ class _BillingPageState extends ConsumerState<BillingPage> {
                       return PaymentDueCard(
                         item: item,
                         danger: _tab == 2,
-                        onTap: () => context.goNamed(
+                        onTap: () => context.pushNamed(
                           AppRoutes.saleDetailName,
                           pathParameters: {'id': item.venda.id},
                         ),

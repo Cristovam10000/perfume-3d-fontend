@@ -82,7 +82,7 @@ class _ProductCard extends StatelessWidget {
 
     return InkWell(
       onTap: produto.tem3D
-          ? () => context.goNamed(
+          ? () => context.pushNamed(
                 AppRoutes.product3dName,
                 pathParameters: {'id': produto.id},
               )

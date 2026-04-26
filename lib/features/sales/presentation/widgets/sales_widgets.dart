@@ -39,7 +39,13 @@ class SalesScaffold extends StatelessWidget {
                   alignment: Alignment.centerLeft,
                   child: CircleIconButton(
                     icon: Icons.arrow_back,
-                    onPressed: () => context.pop(),
+                    onPressed: () {
+                      if (context.canPop()) {
+                        context.pop();
+                      } else {
+                        context.goNamed(AppRoutes.homeName);
+                      }
+                    },
                   ),
                 ),
               )
@@ -59,19 +65,6 @@ class SalesScaffold extends StatelessWidget {
       ),
       bottomNavigationBar:
           currentIndex == null ? null : _SalesBottomNav(currentIndex!),
-      floatingActionButton: currentIndex == null
-          ? null
-          : FloatingActionButton(
-              onPressed: () => context.goNamed(AppRoutes.saleNewName),
-              elevation: 8,
-              backgroundColor: AppColors.accent,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(AppRadius.lg),
-              ),
-              child: const Icon(Icons.add_rounded, size: 30),
-            ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
     );
   }
 }
@@ -85,49 +78,83 @@ class _SalesBottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       top: false,
-      child: Container(
-        height: 76,
-        decoration: const BoxDecoration(
-          color: AppColors.bgElev,
-          border: Border(top: BorderSide(color: AppColors.line)),
-        ),
-        child: Row(
+      child: SizedBox(
+        height: 88,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.topCenter,
           children: [
-            Expanded(
-              child: _NavItem(
-                icon: Icons.home_outlined,
-                selectedIcon: Icons.home_rounded,
-                label: 'Inicio',
-                selected: currentIndex == 0,
-                onTap: () => context.goNamed(AppRoutes.homeName),
+            Positioned.fill(
+              top: 12,
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: AppColors.bgElev,
+                  border: Border(top: BorderSide(color: AppColors.line)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _NavItem(
+                        icon: Icons.home_outlined,
+                        selectedIcon: Icons.home_rounded,
+                        label: 'Inicio',
+                        selected: currentIndex == 0,
+                        onTap: () => context.goNamed(AppRoutes.homeName),
+                      ),
+                    ),
+                    Expanded(
+                      child: _NavItem(
+                        icon: Icons.people_alt_outlined,
+                        selectedIcon: Icons.people_alt_rounded,
+                        label: 'Clientes',
+                        selected: currentIndex == 1,
+                        onTap: () => context.goNamed(AppRoutes.clientsName),
+                      ),
+                    ),
+                    const Expanded(child: SizedBox.shrink()),
+                    Expanded(
+                      child: _NavItem(
+                        icon: Icons.inventory_2_outlined,
+                        selectedIcon: Icons.inventory_2_rounded,
+                        label: 'Produtos',
+                        selected: currentIndex == 2,
+                        onTap: () => context.goNamed(AppRoutes.productsName),
+                      ),
+                    ),
+                    Expanded(
+                      child: _NavItem(
+                        icon: Icons.receipt_long_outlined,
+                        selectedIcon: Icons.receipt_long_rounded,
+                        label: 'Cobranca',
+                        selected: currentIndex == 3,
+                        onTap: () => context.goNamed(AppRoutes.billingName),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            Expanded(
-              child: _NavItem(
-                icon: Icons.people_alt_outlined,
-                selectedIcon: Icons.people_alt_rounded,
-                label: 'Clientes',
-                selected: currentIndex == 1,
-                onTap: () => context.goNamed(AppRoutes.clientsName),
-              ),
-            ),
-            const Expanded(child: SizedBox.shrink()),
-            Expanded(
-              child: _NavItem(
-                icon: Icons.inventory_2_outlined,
-                selectedIcon: Icons.inventory_2_rounded,
-                label: 'Produtos',
-                selected: currentIndex == 2,
-                onTap: () => context.goNamed(AppRoutes.productsName),
-              ),
-            ),
-            Expanded(
-              child: _NavItem(
-                icon: Icons.receipt_long_outlined,
-                selectedIcon: Icons.receipt_long_rounded,
-                label: 'Cobranca',
-                selected: currentIndex == 3,
-                onTap: () => context.goNamed(AppRoutes.billingName),
+            Positioned(
+              top: 0,
+              child: Material(
+                color: AppColors.accent,
+                elevation: 8,
+                shadowColor: AppColors.shadow14,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  onTap: () => context.pushNamed(AppRoutes.saleNewName),
+                  child: const SizedBox.square(
+                    dimension: 56,
+                    child: Icon(
+                      Icons.add_rounded,
+                      color: Colors.white,
+                      size: 32,
+                    ),
+                  ),
+                ),
               ),
             ),
           ],

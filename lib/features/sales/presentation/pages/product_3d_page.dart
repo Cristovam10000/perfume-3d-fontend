@@ -120,7 +120,7 @@ class Product3DPage extends ConsumerWidget {
                   ),
                 ),
                 FilledButton(
-                  onPressed: () => context.goNamed(AppRoutes.saleNewName),
+                  onPressed: () => context.pushNamed(AppRoutes.saleNewName),
                   child: const Text('Vender'),
                 ),
               ],
