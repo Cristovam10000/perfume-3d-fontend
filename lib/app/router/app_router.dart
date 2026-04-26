@@ -8,6 +8,7 @@ import '../../features/product_capture/presentation/pages/capture_review_page.da
 import '../../features/product_capture/presentation/state/capture_controller.dart';
 import '../../features/product_viewer/presentation/pages/product_3d_viewer_page.dart';
 import '../../features/processing/presentation/state/processing_controller.dart';
+import '../../features/sales/domain/sales_models.dart';
 import '../../features/sales/presentation/pages/billing_page.dart';
 import '../../features/sales/presentation/pages/client_detail_page.dart';
 import '../../features/sales/presentation/pages/clients_page.dart';
@@ -50,6 +51,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         name: AppRoutes.saleDetailName,
         builder: (_, state) => SaleDetailPage(
           id: state.pathParameters['id']!,
+          draftVenda: state.extra is Venda ? state.extra! as Venda : null,
         ),
       ),
       GoRoute(

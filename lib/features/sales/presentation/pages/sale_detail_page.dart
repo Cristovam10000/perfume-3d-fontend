@@ -9,13 +9,19 @@ import '../widgets/sales_widgets.dart';
 
 class SaleDetailPage extends ConsumerWidget {
   final String id;
+  final Venda? draftVenda;
 
-  const SaleDetailPage({super.key, required this.id});
+  const SaleDetailPage({
+    super.key,
+    required this.id,
+    this.draftVenda,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final data = ref.watch(salesSnapshotProvider);
-    final venda = data.vendaById(id);
+    final storedVenda = data.vendaById(id);
+    final venda = storedVenda ?? draftVenda;
     if (venda == null) {
       return const SalesScaffold(
         title: 'Venda',
@@ -23,11 +29,26 @@ class SaleDetailPage extends ConsumerWidget {
         body: Center(child: Text('Venda nao encontrada.')),
       );
     }
-    final cliente = data.clienteById(venda.clienteId)!;
-    final parcelas =
+    final cliente = data.clienteById(venda.clienteId);
+    if (cliente == null) {
+      return const SalesScaffold(
+        title: 'Venda',
+        showBack: true,
+        body: Center(child: Text('Cliente nao encontrado.')),
+      );
+    }
+
+    final storedParcelas =
         data.parcelas.where((parcela) => parcela.vendaId == venda.id).toList();
-    final pago = parcelas.fold<double>(0, (sum, p) => sum + p.valorPago);
+    final parcelas = storedParcelas.isEmpty
+        ? _buildDraftInstallments(venda)
+        : storedParcelas;
+    final pago = venda.entrada +
+        parcelas.fold<double>(0, (sum, parcela) => sum + parcela.valorPago);
     final restante = (venda.total - pago).clamp(0, venda.total).toDouble();
+    final parcelaBase = parcelas.isEmpty
+        ? 0
+        : parcelas.fold<double>(0, (s, p) => s + p.valor) / parcelas.length;
 
     return SalesScaffold(
       title: 'Venda #${venda.id}',
@@ -128,16 +149,199 @@ class SaleDetailPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 24),
-          SectionHeader(
+          _SaleSectionHeader(
             title: 'Parcelas',
-            action: '${parcelas.length}x',
+            pill: parcelas.isEmpty
+                ? null
+                : '${parcelas.length}x ${AppFormatters.brl(parcelaBase)}',
           ),
           const SizedBox(height: 8),
           for (final parcela in parcelas) ...[
             _InstallmentButton(parcela: parcela),
             const SizedBox(height: 10),
           ],
+          const SizedBox(height: 14),
+          const _SaleSectionHeader(title: 'Itens vendidos'),
+          const SizedBox(height: 8),
+          _SoldItemsCard(venda: venda, data: data),
+          const SizedBox(height: 28),
         ],
+      ),
+    );
+  }
+
+  List<Parcela> _buildDraftInstallments(Venda venda) {
+    final restante = venda.restante.clamp(0, venda.total).toDouble();
+    if (restante <= 0) return const [];
+
+    final count = venda.numParcelas <= 0 ? 1 : venda.numParcelas;
+    final baseValue = restante / count;
+    final startDate =
+        DateTime(venda.data.year, venda.data.month, venda.data.day);
+
+    return List.generate(count, (index) {
+      final numero = index + 1;
+      return Parcela(
+        id: '${venda.id}-$numero',
+        vendaId: venda.id,
+        numero: numero,
+        total: count,
+        valor: baseValue,
+        vencimento: DateTime(
+          startDate.year,
+          startDate.month + numero,
+          startDate.day,
+        ),
+        status: ParcelaStatus.pendente,
+        syncStatus: SyncStatus.pending,
+      );
+    });
+  }
+}
+
+class _SaleSectionHeader extends StatelessWidget {
+  final String title;
+  final String? pill;
+
+  const _SaleSectionHeader({
+    required this.title,
+    this.pill,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title.toUpperCase(),
+            style: const TextStyle(
+              color: AppColors.ink3,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ),
+        if (pill != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: AppColors.accentSoft,
+              border: Border.all(color: AppColors.line),
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+            ),
+            child: Text(
+              pill!,
+              style: const TextStyle(
+                color: AppColors.ink2,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _SoldItemsCard extends StatelessWidget {
+  final Venda venda;
+  final SalesSnapshot data;
+
+  const _SoldItemsCard({
+    required this.venda,
+    required this.data,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.bgElev,
+        border: Border.all(color: AppColors.line),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          for (var i = 0; i < venda.itens.length; i++) ...[
+            _SoldItemRow(
+              item: venda.itens[i],
+              produto: data.produtoById(venda.itens[i].produtoId),
+            ),
+            if (i != venda.itens.length - 1)
+              const Divider(height: 1, color: AppColors.line),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SoldItemRow extends StatelessWidget {
+  final ItemVenda item;
+  final Produto? produto;
+
+  const _SoldItemRow({
+    required this.item,
+    required this.produto,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final nome = produto?.nome ?? 'Produto removido';
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          _ProductSwatch(produtoId: item.produtoId),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  nome,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: AppColors.ink,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                Text(
+                  '${item.quantidade}x ${AppFormatters.brl(item.precoUnitario)}',
+                  style: const TextStyle(
+                    color: AppColors.ink3,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 10),
+          MoneyText(value: item.total, size: 16),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProductSwatch extends StatelessWidget {
+  final String produtoId;
+
+  const _ProductSwatch({required this.produtoId});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: _productColor(produtoId),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
     );
   }
@@ -151,6 +355,9 @@ class _InstallmentButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tone = _tone(parcela.status);
+    final subtitle = _subtitle(parcela, tone);
+    final actionColor =
+        parcela.estaAberta ? AppColors.accent : Colors.transparent;
     return InkWell(
       onTap: parcela.estaAberta ? () {} : null,
       borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -168,7 +375,7 @@ class _InstallmentButton extends StatelessWidget {
               height: 42,
               decoration: BoxDecoration(
                 color: tone.soft,
-                borderRadius: BorderRadius.circular(AppRadius.md),
+                borderRadius: BorderRadius.circular(AppRadius.lg),
               ),
               child: Icon(tone.icon, color: tone.color),
             ),
@@ -179,10 +386,14 @@ class _InstallmentButton extends StatelessWidget {
                 children: [
                   Text(
                     'Parcela ${parcela.numero}/${parcela.total}',
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                    style: const TextStyle(
+                      color: AppColors.ink,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   Text(
-                    '${tone.label} em ${AppFormatters.compactDate(parcela.vencimento)}',
+                    subtitle,
                     style: TextStyle(
                       color: tone.color,
                       fontSize: 12,
@@ -192,7 +403,21 @@ class _InstallmentButton extends StatelessWidget {
                 ],
               ),
             ),
-            MoneyText(value: parcela.restante, size: 13),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                MoneyText(value: parcela.restante, size: 14),
+                const SizedBox(height: 4),
+                Text(
+                  parcela.estaAberta ? 'Receber ->' : 'Recebida',
+                  style: TextStyle(
+                    color: actionColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -211,7 +436,7 @@ class _InstallmentButton extends StatelessWidget {
       case ParcelaStatus.parcial:
         return const _InstallmentTone(
           label: 'Parcial',
-          icon: Icons.payments_outlined,
+          icon: Icons.sync_rounded,
           color: AppColors.warn,
           soft: AppColors.warnSoft,
         );
@@ -224,11 +449,24 @@ class _InstallmentButton extends StatelessWidget {
         );
       case ParcelaStatus.pendente:
         return const _InstallmentTone(
-          label: 'Vence',
+          label: 'Pendente',
           icon: Icons.schedule,
           color: AppColors.ink3,
           soft: AppColors.bgSunken,
         );
+    }
+  }
+
+  String _subtitle(Parcela parcela, _InstallmentTone tone) {
+    switch (parcela.status) {
+      case ParcelaStatus.paga:
+        return 'Paga em ${AppFormatters.compactDate(parcela.vencimento)}';
+      case ParcelaStatus.parcial:
+        return 'Parcial - ${AppFormatters.brl(parcela.valorPago)} de ${AppFormatters.brl(parcela.valor)}';
+      case ParcelaStatus.atrasada:
+        return 'Em atraso - vence ${AppFormatters.compactDate(parcela.vencimento)}';
+      case ParcelaStatus.pendente:
+        return '${tone.label} - vence ${AppFormatters.compactDate(parcela.vencimento)}';
     }
   }
 }
@@ -245,4 +483,18 @@ class _InstallmentTone {
     required this.color,
     required this.soft,
   });
+}
+
+Color _productColor(String produtoId) {
+  final digits = RegExp(r'\d+').firstMatch(produtoId)?.group(0);
+  final index = ((int.tryParse(digits ?? '1') ?? 1) - 1).clamp(0, 999).toInt();
+  const colors = [
+    Color(0xFFCB3E7B),
+    Color(0xFF4863A8),
+    Color(0xFFB13B72),
+    Color(0xFF94683E),
+    Color(0xFFC83D7B),
+    Color(0xFF336D88),
+  ];
+  return colors[index % colors.length];
 }

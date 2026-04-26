@@ -58,6 +58,34 @@ void main() {
     expect(find.text('Bom dia,'), findsOneWidget);
     expect(find.text('Nova venda'), findsNothing);
   });
+
+  testWidgets('confirmar venda abre detalhe com cliente, parcelas e itens',
+      (tester) async {
+    await _openWizardStep2(tester);
+
+    await tester.tap(find.byKey(const ValueKey('toggle-product-catalog')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('catalog-product-p1')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Continuar'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continuar'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirmar venda'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Venda #005'), findsOneWidget);
+    expect(find.text('Dona Marta Oliveira'), findsOneWidget);
+    expect(find.text('PARCELAS'), findsOneWidget);
+    expect(find.textContaining('3x'), findsOneWidget);
+
+    await tester.scrollUntilVisible(find.text('ITENS VENDIDOS'), 500);
+    await tester.pumpAndSettle();
+
+    expect(find.text('ITENS VENDIDOS'), findsOneWidget);
+    expect(find.text('Lattafa Khamrah'), findsOneWidget);
+  });
 }
 
 Future<void> _pumpApp(WidgetTester tester) async {

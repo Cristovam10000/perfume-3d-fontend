@@ -153,13 +153,7 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
                             setState(() => _step += 1);
                             return;
                           }
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Venda salva localmente. Sincronizacao vem depois.',
-                              ),
-                            ),
-                          );
+                          _confirmSale(data, total);
                         }
                       : null,
                   child: _step == 3
@@ -240,6 +234,40 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
   String _entradaInputText(double value) {
     if (value == value.roundToDouble()) return value.toStringAsFixed(0);
     return value.toStringAsFixed(2).replaceAll('.', ',');
+  }
+
+  void _confirmSale(SalesSnapshot data, double total) {
+    final venda = Venda(
+      id: _nextSaleId(data),
+      clienteId: _clienteId!,
+      data: DateTime.now(),
+      itens: _items.entries.map((entry) {
+        final produto = data.produtoById(entry.key)!;
+        return ItemVenda(
+          produtoId: produto.id,
+          quantidade: entry.value,
+          precoUnitario: produto.precoBase,
+        );
+      }).toList(),
+      total: total,
+      entrada: _entrada,
+      numParcelas: _parcelas,
+      syncStatus: SyncStatus.pending,
+    );
+
+    context.goNamed(
+      AppRoutes.saleDetailName,
+      pathParameters: {'id': venda.id},
+      extra: venda,
+    );
+  }
+
+  String _nextSaleId(SalesSnapshot data) {
+    final next = data.vendas
+            .map((venda) => int.tryParse(venda.id) ?? 0)
+            .fold<int>(0, (max, id) => id > max ? id : max) +
+        1;
+    return next.toString().padLeft(3, '0');
   }
 }
 
