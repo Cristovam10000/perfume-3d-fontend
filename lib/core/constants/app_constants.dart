@@ -5,7 +5,7 @@ class AppConstants {
 
   // Base URL do backend local. Ajustar conforme ambiente.
   // Em emulador Android use 10.0.2.2; em dispositivo físico, o IP da máquina.
-  static const String backendBaseUrl = 'http://10.0.2.2:8000';
+  static const String backendBaseUrl = 'http://192.168.0.3:8000';
 
   // Regras de captura
   static const int minImages = 12;
