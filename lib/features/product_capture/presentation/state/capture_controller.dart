@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../../core/constants/app_constants.dart';
@@ -46,18 +47,72 @@ class CaptureController extends StateNotifier<CaptureState> {
     _recomputeQuality();
   }
 
-  Future<void> pickFromGallery() async {
+  int _addPickedFiles(List<XFile> files) {
+    if (files.isEmpty) return 0;
+    final remaining = AppConstants.maxImages - state.images.length;
+    if (remaining <= 0) return 0;
+
+    final selected = files.take(remaining).map((x) => File(x.path)).toList();
+    final merged = [...state.images, ...selected];
+    final capped = merged.length > AppConstants.maxImages
+        ? merged.sublist(0, AppConstants.maxImages)
+        : merged;
+    state = state.copyWith(images: capped, clearError: true);
+    _recomputeQuality();
+    return selected.length;
+  }
+
+  Future<int> pickFromGallery() async {
+    if (state.selectingFromGallery) return 0;
+    state = state.copyWith(selectingFromGallery: true, clearError: true);
     try {
       final files = await _picker.pickMultiImage(imageQuality: 90);
-      if (files.isEmpty) return;
-      final merged = [...state.images, ...files.map((x) => File(x.path))];
-      final capped = merged.length > AppConstants.maxImages
-          ? merged.sublist(0, AppConstants.maxImages)
-          : merged;
-      state = state.copyWith(images: capped, clearError: true);
-      _recomputeQuality();
+      if (files.isEmpty) {
+        state = state.copyWith(selectingFromGallery: false);
+        return 0;
+      }
+
+      final added = _addPickedFiles(files);
+      state = state.copyWith(selectingFromGallery: false);
+      return added;
+    } on PlatformException catch (e) {
+      final message = e.code == 'already_active'
+          ? 'A galeria ainda está aberta ou processando a seleção anterior. Aguarde alguns segundos e tente novamente.'
+          : 'Falha ao selecionar imagens: $e';
+      state = state.copyWith(
+        selectingFromGallery: false,
+        error: message,
+      );
+      return 0;
     } catch (e) {
-      state = state.copyWith(error: 'Falha ao selecionar imagens: $e');
+      state = state.copyWith(
+        selectingFromGallery: false,
+        error: 'Falha ao selecionar imagens: $e',
+      );
+      return 0;
+    }
+  }
+
+  Future<int> recoverLostGallerySelection() async {
+    try {
+      final response = await _picker.retrieveLostData();
+      if (response.isEmpty) return 0;
+      if (response.exception != null) {
+        state = state.copyWith(
+          error:
+              'Falha ao recuperar imagens selecionadas: ${response.exception}',
+        );
+        return 0;
+      }
+
+      final files = response.files;
+      if (files == null || files.isEmpty) return 0;
+      return _addPickedFiles(files);
+    } catch (e) {
+      state = state.copyWith(
+        error: 'Falha ao recuperar imagens selecionadas: $e',
+      );
+      return 0;
     }
   }
 
@@ -77,13 +132,13 @@ class CaptureController extends StateNotifier<CaptureState> {
   /// Não realiza navegação; a UI observa e decide.
   Future<String?> submit() async {
     if (state.images.isEmpty) return null;
-    state = state.copyWith(uploading: true, uploadProgress: 0, clearError: true);
+    state =
+        state.copyWith(uploading: true, uploadProgress: 0, clearError: true);
     try {
       final repo = _ref.read(captureRepositoryProvider);
       final result = await repo.uploadImages(
         state.images,
-        onProgress: (p) =>
-            state = state.copyWith(uploadProgress: p),
+        onProgress: (p) => state = state.copyWith(uploadProgress: p),
       );
       state = state.copyWith(uploading: false, uploadProgress: 1);
       return result.jobId;

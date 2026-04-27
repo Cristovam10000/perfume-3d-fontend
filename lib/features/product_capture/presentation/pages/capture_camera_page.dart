@@ -34,6 +34,8 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initFuture = _initCamera();
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _recoverLostSelection());
   }
 
   @override
@@ -138,11 +140,30 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
     }
   }
 
+  Future<void> _pickFromGallery() async {
+    await _stopStream();
+    final added =
+        await ref.read(captureControllerProvider.notifier).pickFromGallery();
+    if (!mounted) return;
+    if (added > 0) {
+      context.goNamed(AppRoutes.captureReviewName);
+      return;
+    }
+    _startStream();
+  }
+
+  Future<void> _recoverLostSelection() async {
+    final added = await ref
+        .read(captureControllerProvider.notifier)
+        .recoverLostGallerySelection();
+    if (!mounted || added <= 0) return;
+    context.goNamed(AppRoutes.captureReviewName);
+  }
+
   @override
   Widget build(BuildContext context) {
     final capture = ref.watch(captureControllerProvider);
     final live = ref.watch(liveCaptureControllerProvider);
-    final controller = ref.read(captureControllerProvider.notifier);
     final scheme = Theme.of(context).colorScheme;
 
     return AppScaffold(
@@ -232,9 +253,11 @@ class _CaptureCameraPageState extends ConsumerState<CaptureCameraPage>
             children: [
               Expanded(
                 child: SecondaryButton(
-                  label: 'Galeria',
+                  label:
+                      capture.selectingFromGallery ? 'Abrindo...' : 'Galeria',
                   icon: Icons.photo_library_outlined,
-                  onPressed: controller.pickFromGallery,
+                  onPressed:
+                      capture.selectingFromGallery ? null : _pickFromGallery,
                 ),
               ),
               const SizedBox(width: 8),

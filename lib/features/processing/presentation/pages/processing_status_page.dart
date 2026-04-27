@@ -67,10 +67,12 @@ class ProcessingStatusPage extends ConsumerWidget {
               ),
             if (job.hasError) ...[
               PrimaryButton(
-                label: 'Tentar novamente',
+                label: 'Revisar e reenviar',
                 icon: Icons.refresh,
-                onPressed: () =>
-                    ref.read(processingControllerProvider.notifier).retry(),
+                onPressed: () {
+                  ref.read(processingControllerProvider.notifier).reset();
+                  context.goNamed(AppRoutes.captureReviewName);
+                },
               ),
               const SizedBox(height: 8),
               SecondaryButton(
