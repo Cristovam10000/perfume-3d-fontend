@@ -116,7 +116,7 @@ class _SalesBottomNav extends StatelessWidget {
                       child: _NavItem(
                         icon: Icons.inventory_2_outlined,
                         selectedIcon: Icons.inventory_2_rounded,
-                        label: 'Produtos',
+                        label: 'Estoque',
                         selected: currentIndex == 2,
                         onTap: () => context.goNamed(AppRoutes.productsName),
                       ),

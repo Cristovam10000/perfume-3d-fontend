@@ -110,7 +110,8 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
                     () => _catalogExpanded = !_catalogExpanded,
                   ),
                   onProductSelected: _addProduct,
-                  onQuantityChanged: _setItemQuantity,
+                  onQuantityChanged: (produtoId, quantity) =>
+                      _setItemQuantity(produtoId, quantity, data),
                 ),
                 _PaymentStep(
                   total: total,
@@ -191,18 +192,25 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
   }
 
   void _addProduct(Produto produto) {
+    if (produto.estoque <= 0) return;
     setState(() {
-      _items.update(produto.id, (quantity) => quantity + 1, ifAbsent: () => 1);
+      _items.update(
+        produto.id,
+        (quantity) => (quantity + 1).clamp(1, produto.estoque).toInt(),
+        ifAbsent: () => 1,
+      );
       _catalogExpanded = false;
     });
   }
 
-  void _setItemQuantity(String produtoId, int quantity) {
+  void _setItemQuantity(String produtoId, int quantity, SalesSnapshot data) {
+    final produto = data.produtoById(produtoId);
+    if (produto == null) return;
     setState(() {
       if (quantity <= 0) {
         _items.remove(produtoId);
       } else {
-        _items[produtoId] = quantity;
+        _items[produtoId] = quantity.clamp(1, produto.estoque).toInt();
       }
     });
   }
@@ -254,6 +262,8 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
       numParcelas: _parcelas,
       syncStatus: SyncStatus.pending,
     );
+
+    ref.read(salesControllerProvider.notifier).confirmSale(venda);
 
     context.goNamed(
       AppRoutes.saleDetailName,
@@ -451,7 +461,9 @@ class _ItemsStep extends StatelessWidget {
             produto: data.produtoById(entry.key)!,
             quantity: entry.value,
             onMinus: () => onQuantityChanged(entry.key, entry.value - 1),
-            onPlus: () => onQuantityChanged(entry.key, entry.value + 1),
+            onPlus: entry.value >= data.produtoById(entry.key)!.estoque
+                ? null
+                : () => onQuantityChanged(entry.key, entry.value + 1),
           ),
           const SizedBox(height: 10),
         ],
@@ -484,7 +496,7 @@ class _ItemRow extends StatelessWidget {
   final Produto produto;
   final int quantity;
   final VoidCallback onMinus;
-  final VoidCallback onPlus;
+  final VoidCallback? onPlus;
 
   const _ItemRow({
     super.key,
@@ -523,6 +535,14 @@ class _ItemRow extends StatelessWidget {
                     color: AppColors.ink3,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  '${produto.estoque} em estoque',
+                  style: TextStyle(
+                    color: _stockColor(produto),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ],
@@ -592,47 +612,65 @@ class _ProductOptionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final disabled = produto.estoque <= 0;
     return InkWell(
-      onTap: onTap,
+      onTap: disabled ? null : onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            _ProductSwatch(produto: produto, size: 52),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    produto.nome,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.ink,
-                      fontWeight: FontWeight.w900,
+        child: Opacity(
+          opacity: disabled ? 0.48 : 1,
+          child: Row(
+            children: [
+              _ProductSwatch(produto: produto, size: 52),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      produto.nome,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.ink,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
-                  ),
-                  Text(
-                    '${produto.categoria}${produto.tem3D ? ' - 3D' : ''}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: AppColors.ink3,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                    Text(
+                      '${produto.categoria}${produto.tem3D ? ' - 3D' : ''}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: AppColors.ink3,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                ],
+                    Text(
+                      disabled
+                          ? 'Sem estoque'
+                          : '${produto.estoque} em estoque',
+                      style: TextStyle(
+                        color: _stockColor(produto),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            MoneyText(value: produto.precoBase, size: 13),
-            if (selected) ...[
-              const SizedBox(width: 8),
-              const Icon(Icons.check_circle, color: AppColors.accent, size: 18),
+              const SizedBox(width: 10),
+              MoneyText(value: produto.precoBase, size: 13),
+              if (selected) ...[
+                const SizedBox(width: 8),
+                const Icon(
+                  Icons.check_circle,
+                  color: AppColors.accent,
+                  size: 18,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -662,7 +700,7 @@ class _QuantityStepper extends StatelessWidget {
   final String produtoId;
   final int quantity;
   final VoidCallback onMinus;
-  final VoidCallback onPlus;
+  final VoidCallback? onPlus;
 
   const _QuantityStepper({
     required this.produtoId,
@@ -720,7 +758,7 @@ class _StepperButton extends StatelessWidget {
   final IconData icon;
   final Color foreground;
   final Color background;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const _StepperButton({
     super.key,
@@ -740,10 +778,14 @@ class _StepperButton extends StatelessWidget {
         height: 38,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: background,
+          color: onTap == null ? AppColors.bgSunken : background,
           shape: BoxShape.circle,
         ),
-        child: Icon(icon, color: foreground, size: 20),
+        child: Icon(
+          icon,
+          color: onTap == null ? AppColors.ink4 : foreground,
+          size: 20,
+        ),
       ),
     );
   }
@@ -1051,6 +1093,12 @@ Color _productColor(Produto produto) {
     Color(0xFF336D88),
   ];
   return colors[index % colors.length];
+}
+
+Color _stockColor(Produto produto) {
+  if (produto.estoque <= 0) return AppColors.bad;
+  if (produto.estoque <= produto.estoqueMinimo + 1) return AppColors.warn;
+  return AppColors.good;
 }
 
 class _ReviewStep extends StatelessWidget {

@@ -48,6 +48,11 @@ class Produto {
   final String nome;
   final String categoria;
   final double precoBase;
+  final double custo;
+  final int estoque;
+  final int estoqueMinimo;
+  final int volumeMl;
+  final int frascoColorValue;
   final bool tem3D;
   final String? modelo3DPath;
   final String? previewImg;
@@ -58,11 +63,48 @@ class Produto {
     required this.nome,
     required this.categoria,
     required this.precoBase,
+    this.custo = 0,
+    this.estoque = 0,
+    this.estoqueMinimo = 1,
+    this.volumeMl = 100,
+    this.frascoColorValue = 0xFFCB3E7B,
     required this.tem3D,
     this.modelo3DPath,
     this.previewImg,
     this.syncStatus = SyncStatus.synced,
   });
+
+  Produto copyWith({
+    String? id,
+    String? nome,
+    String? categoria,
+    double? precoBase,
+    double? custo,
+    int? estoque,
+    int? estoqueMinimo,
+    int? volumeMl,
+    int? frascoColorValue,
+    bool? tem3D,
+    String? modelo3DPath,
+    String? previewImg,
+    SyncStatus? syncStatus,
+  }) {
+    return Produto(
+      id: id ?? this.id,
+      nome: nome ?? this.nome,
+      categoria: categoria ?? this.categoria,
+      precoBase: precoBase ?? this.precoBase,
+      custo: custo ?? this.custo,
+      estoque: estoque ?? this.estoque,
+      estoqueMinimo: estoqueMinimo ?? this.estoqueMinimo,
+      volumeMl: volumeMl ?? this.volumeMl,
+      frascoColorValue: frascoColorValue ?? this.frascoColorValue,
+      tem3D: tem3D ?? this.tem3D,
+      modelo3DPath: modelo3DPath ?? this.modelo3DPath,
+      previewImg: previewImg ?? this.previewImg,
+      syncStatus: syncStatus ?? this.syncStatus,
+    );
+  }
 }
 
 class Venda {
@@ -89,6 +131,30 @@ class Venda {
   });
 
   double get restante => total - entrada;
+
+  Venda copyWith({
+    String? id,
+    String? clienteId,
+    DateTime? data,
+    List<ItemVenda>? itens,
+    double? total,
+    double? entrada,
+    int? numParcelas,
+    String? observacoes,
+    SyncStatus? syncStatus,
+  }) {
+    return Venda(
+      id: id ?? this.id,
+      clienteId: clienteId ?? this.clienteId,
+      data: data ?? this.data,
+      itens: itens ?? this.itens,
+      total: total ?? this.total,
+      entrada: entrada ?? this.entrada,
+      numParcelas: numParcelas ?? this.numParcelas,
+      observacoes: observacoes ?? this.observacoes,
+      syncStatus: syncStatus ?? this.syncStatus,
+    );
+  }
 }
 
 class ItemVenda {
@@ -221,6 +287,26 @@ class SalesSnapshot {
     required this.notificacoes,
   });
 
+  SalesSnapshot copyWith({
+    DateTime? hoje,
+    List<Cliente>? clientes,
+    List<Produto>? produtos,
+    List<Venda>? vendas,
+    List<Parcela>? parcelas,
+    List<Pagamento>? pagamentos,
+    List<Notificacao>? notificacoes,
+  }) {
+    return SalesSnapshot(
+      hoje: hoje ?? this.hoje,
+      clientes: clientes ?? this.clientes,
+      produtos: produtos ?? this.produtos,
+      vendas: vendas ?? this.vendas,
+      parcelas: parcelas ?? this.parcelas,
+      pagamentos: pagamentos ?? this.pagamentos,
+      notificacoes: notificacoes ?? this.notificacoes,
+    );
+  }
+
   Map<String, Cliente> get clientesById => {
         for (final cliente in clientes) cliente.id: cliente,
       };
@@ -288,6 +374,28 @@ class SalesSnapshot {
 
   double get totalAtraso =>
       emAtraso.fold(0, (total, item) => total + item.parcela.restante);
+
+  int get unidadesEmEstoque =>
+      produtos.fold(0, (total, produto) => total + produto.estoque);
+
+  double get valorEstoqueCusto => produtos.fold(
+        0,
+        (total, produto) => total + produto.custo * produto.estoque,
+      );
+
+  double get valorVendaPotencial => produtos.fold(
+        0,
+        (total, produto) => total + produto.precoBase * produto.estoque,
+      );
+
+  List<Produto> get produtosSemEstoque =>
+      produtos.where((produto) => produto.estoque <= 0).toList();
+
+  List<Produto> get produtosEstoqueBaixo => produtos
+      .where((produto) =>
+          produto.estoque > 0 &&
+          produto.estoque <= (produto.estoqueMinimo + 1).clamp(1, 999))
+      .toList();
 
   static bool _sameDate(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
