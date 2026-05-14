@@ -2,12 +2,15 @@
 
 `sales` e a feature principal da experiencia atual. Ela transforma o app em uma ferramenta de apoio para venda de perfumes: clientes, cobranca, catalogo, vendas parceladas e modelos 3D.
 
+A camada de dados e **HTTP-first com fallback mock** - o `SalesController` consome `/sales/*` do backend FastAPI ([13 - Endpoints HTTP](../../back/docs/13-endpoints-http.md)) e, em offline, mantem o estado em `localStorage` + dados sementes do `MockSalesRepository`. Detalhes em [16 - Contrato do backend](16-contrato-backend.md) e na secao **Data** abaixo.
+
 ## Estrutura
 
 ```text
 lib/features/sales/
   data/
-    sales_repository.dart
+    sales_repository.dart   # SalesController + MockSalesRepository + helpers JSON
+    sales_local_storage.dart # wrapper SharedPreferences/localStorage
   domain/
     sales_models.dart
   presentation/
@@ -73,28 +76,62 @@ Arquivo: [sales_models.dart](../lib/features/sales/domain/sales_models.dart).
 
 Arquivo: [sales_repository.dart](../lib/features/sales/data/sales_repository.dart).
 
-Providers:
+A camada de dados e composta por tres pecas: o controller, o repositorio mock e o storage local.
+
+### `SalesController` (`StateNotifier<SalesSnapshot>`)
+
+Provider exposto:
 
 ```dart
-final salesRepositoryProvider = Provider<SalesRepository>((ref) {
-  return MockSalesRepository();
+final salesControllerProvider =
+    StateNotifierProvider<SalesController, SalesSnapshot>((ref) {
+  return SalesController(SalesLocalStorage());
 });
 
 final salesSnapshotProvider = Provider<SalesSnapshot>((ref) {
-  return ref.watch(salesRepositoryProvider).loadSnapshot();
+  return ref.watch(salesControllerProvider);
 });
 ```
 
-`MockSalesRepository` monta dados relativos a `DateTime.now()`:
+O controller usa um `Dio` configurado com `AppConstants.backendBaseUrl` e timeouts curtos (connect 900ms, receive/send 3s) - parametros calibrados para detectar rapidamente backend offline.
+
+**Sequencia de boot** (construtor de `SalesController`):
+
+1. `super(MockSalesRepository().loadSnapshot())` - inicializa com dados de exemplo (6 clientes, 6 produtos, 4 vendas, 10 parcelas, 3 pagamentos, 3 notificacoes), garantindo que o app abra sem tela em branco mesmo offline.
+2. `_restore()` - le o JSON do `localStorage` (chave `perfume_3d_sales_snapshot_v2`) e substitui o snapshot mockado, se houver.
+3. `_loadRemote()` - dispara `GET /sales/snapshot` para o backend e, em sucesso, sobrescreve o estado local + persiste no `localStorage`. Falha silenciosa em offline.
+
+**Acoes do usuario** seguem sempre o padrao "local-first, sync best-effort":
+
+| Acao | Metodo no controller | Endpoint backend | Comportamento |
+|---|---|---|---|
+| Criar produto | `addProduct(Produto)` | `POST /sales/products` | State + localStorage atualizados imediatamente. Sync remoto e *fire-and-forget*. |
+| Reabastecer | `restockProduct(id, amount)` | `PATCH /sales/products/{id}/stock` (`mode: add`) | Apenas se `_isRemoteId` aceitar o id. |
+| Ajustar estoque | `adjustProductStock(id, qty)` | `PATCH /sales/products/{id}/stock` (`mode: set`) | Idem. |
+| Confirmar venda | `confirmSale(Venda)` | `POST /sales/sales` | Decrementa estoque local, adiciona venda. Sync apenas se `_canSyncSale` (todos os itens com id remoto). |
+
+**`nextProductId()`** gera ids locais incrementais (`p1`, `p2`, ...) usados ate o backend responder com um id remoto via `_loadRemote()`. Produtos com id local sao **invisiveis** para o backend - so produtos cuja existencia o backend ja confirmou recebem operacoes de PATCH.
+
+**Limitacoes registradas** (sem outbox / sem retry):
+
+- Apos um *write* falhar offline, nao ha re-tentativa automatica.
+- Quando o backend volta online e `_loadRemote()` roda, escritas locais nao sincronizadas com id local sao **sobrescritas** pelo snapshot remoto.
+- Para producao real, evoluir para outbox + reconciliacao por client-id.
+
+### `MockSalesRepository`
+
+Implementa `SalesRepository` com dados estaticos relativos a `DateTime.now()`. Continua sendo o ponto de entrada do estado inicial e o fallback quando o backend nao responde no boot:
 
 - 6 clientes;
-- 6 produtos;
+- 6 produtos (alguns com `modelo3DPath` apontando para `http://localhost:8000/files/models/...`);
 - 4 vendas;
 - 10 parcelas;
 - 3 pagamentos;
 - 3 notificacoes.
 
-Alguns produtos tem `modelo3DPath` apontando para backend local/demo.
+### `SalesLocalStorage`
+
+Wrapper minimalista sobre `SharedPreferences` (ou `localStorage` no web). Expoe `read(key)` / `write(key, value)`. O snapshot e serializado para JSON via `_snapshotToJson()` antes de gravar.
 
 ## Paginas
 

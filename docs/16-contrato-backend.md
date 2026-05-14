@@ -1,6 +1,11 @@
 # 16 - Contrato do backend
 
-O backend e usado apenas pelo pipeline de captura/processamento 3D. O modulo comercial `sales` usa `MockSalesRepository` local e nao faz chamadas HTTP.
+O backend cobre dois domínios:
+
+1. **Captura/processamento 3D** (`/captures/*`, `/files/*`) - sempre via HTTP.
+2. **Operação comercial** (`/sales/*`) - usado pelo `HttpSalesRepository` quando online; cai para `MockSalesRepository` em modo offline ou quando o backend nao responde.
+
+O front Flutter consome ambos atraves do mesmo `Dio` centralizado em [AppConstants](../lib/core/constants/app_constants.dart).
 
 ## Base URL
 
@@ -120,22 +125,100 @@ Essas URLs nao passam por `Dio`; sao entregues diretamente ao `ModelViewer`. O d
 
 Nao ha autenticacao no front atual. Todas as chamadas presumem backend local anonimo.
 
-## Backend comercial
+## Backend comercial - `/sales/*`
 
-Ainda nao existe contrato para:
+Usado por [sales_repository.dart](../lib/features/sales/data/sales_repository.dart) - especificamente pela classe `HttpSalesRepository` (com fallback para `MockSalesRepository` quando offline). Todos os payloads usam camelCase ja convertido pelo Pydantic do backend.
 
-- clientes;
-- produtos;
-- vendas;
-- parcelas;
-- pagamentos;
-- notificacoes;
-- sincronizacao.
+### `GET /sales/snapshot`
 
-Quando essa API existir, o primeiro ponto de troca sera `MockSalesRepository`.
+Devolve o estado completo (clientes, produtos, vendas, parcelas, pagamentos, notificacoes) num unico payload. O `HttpSalesRepository` chama isso no boot do app e usa para hidratar o estado em memoria. Resposta:
+
+```json
+{
+  "hoje": "2026-05-09T00:00:00",
+  "clientes": [ { "id": "...", "nome": "...", "telefone": "...", "score": 0, "status": "...", "emAberto": 0.0, "totalCompras": 0, "parcelasAtraso": 0, "totalComprado": 0.0, "syncStatus": "synced" } ],
+  "produtos": [ { "id": "...", "nome": "...", "categoria": "...", "precoBase": 0.0, "custo": 0.0, "estoque": 0, "estoqueMinimo": 1, "volumeMl": 100, "frascoColorValue": 4285558395, "tem3D": false, "modelo3DPath": null, "previewImg": null, "syncStatus": "synced" } ],
+  "vendas": [ ... ],
+  "parcelas": [ ... ],
+  "pagamentos": [ ... ],
+  "notificacoes": [ ... ]
+}
+```
+
+### `POST /sales/products`
+
+Cria um produto novo. Body:
+
+```json
+{
+  "nome": "Empire Sport 100ml",
+  "categoria": "Perfume",
+  "precoBase": 199.90,
+  "custo": 80.0,
+  "estoque": 12,
+  "estoqueMinimo": 2,
+  "volumeMl": 100,
+  "frascoColorValue": 4292216955
+}
+```
+
+Resposta `201 Created` com o `ProdutoOut` completo.
+
+### `PATCH /sales/products/{produtoId}/stock`
+
+Ajusta estoque. Body:
+
+```json
+{ "mode": "add", "quantity": 5 }
+```
+
+`mode` aceita `"add"` (incrementa) ou `"set"` (substitui). Resposta `200` com o produto atualizado, ou `404` se inexistente.
+
+### `POST /sales/sales`
+
+Registra uma venda completa (cabecalho + itens, parcelas geradas no backend). Body:
+
+```json
+{
+  "clienteId": "...",
+  "data": "2026-05-09T14:30:00",
+  "itens": [
+    { "produtoId": "...", "quantidade": 1, "precoUnitario": 199.90 }
+  ],
+  "total": 199.90,
+  "entrada": 50.0,
+  "numParcelas": 3,
+  "observacoes": null
+}
+```
+
+Resposta `201 Created`:
+
+```json
+{ "id": "<uuid-da-venda>" }
+```
+
+Erros de regra de negocio (cliente inativo, estoque insuficiente, total inconsistente) retornam `422` com mensagem do `ValidationError` do backend.
+
+### Sincronizacao e fallback
+
+A arquitetura real do `SalesController` ([sales_repository.dart:21](../lib/features/sales/data/sales_repository.dart)):
+
+1. **Boot**: parte do snapshot `MockSalesRepository` (dados de exemplo), tenta `_restore()` do `localStorage` (`perfume_3d_sales_snapshot_v2`), e dispara `_loadRemote()` para sobrescrever com `GET /sales/snapshot`.
+2. **Escrita local imediata**: cada acao do usuario (criar produto, ajustar estoque, confirmar venda) atualiza o `StateNotifier` e o `localStorage` *antes* de chamar a API.
+3. **Sincronizacao best-effort**: depois da escrita local, dispara `_createRemoteProduct` / `_syncRemoteStock` / `_createRemoteSale`. Se a chamada Dio falhar (timeout 900ms / 3s, `SocketException`, etc), o `try/catch` engole o erro silenciosamente. **Nao ha outbox nem retry**: o estado local fica dessincronizado do backend ate o proximo `_loadRemote()` bem-sucedido.
+4. **`_isRemoteId` / `_canSyncSale`**: produtos criados offline tem id local (`p<n>`) e *nao* sincronizam ate o backend devolver um id remoto via `_loadRemote()`. Vendas com itens contendo apenas ids locais sao puladas pelo `_canSyncSale`.
+
+Implicacoes praticas:
+
+- Apos o backend voltar a responder, o `_loadRemote()` do proximo boot **sobrescreve** o estado local — escritas feitas offline que nao foram sincronizadas sao **perdidas** (exceto se ja tinham id remoto).
+- Para um MVP de TCC isso e aceitavel. Producao real exigiria outbox + reconciliacao.
+
+Detalhes em [18 - Feature `sales`](18-feature-sales.md).
 
 ## Proxima leitura
 
 - Upload no front: [09 - Feature `product_capture`](09-feature-product-capture.md).
 - Polling: [10 - Feature `processing`](10-feature-processing.md).
-- Modulo comercial mockado: [18 - Feature `sales`](18-feature-sales.md).
+- Modulo comercial: [18 - Feature `sales`](18-feature-sales.md).
+- Contrato no backend: [`13 - Endpoints HTTP`](../../back/docs/13-endpoints-http.md), [`12 - Armazenamento e banco`](../../back/docs/12-armazenamento-e-banco.md).

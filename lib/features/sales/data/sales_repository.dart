@@ -1,7 +1,9 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/constants/app_constants.dart';
 import '../domain/sales_models.dart';
 import 'sales_local_storage.dart';
 
@@ -18,9 +20,21 @@ final salesSnapshotProvider = Provider<SalesSnapshot>((ref) {
 
 class SalesController extends StateNotifier<SalesSnapshot> {
   final SalesLocalStorage _storage;
+  final Dio _dio;
 
-  SalesController(this._storage) : super(MockSalesRepository().loadSnapshot()) {
+  SalesController(this._storage)
+      : _dio = Dio(
+          BaseOptions(
+            baseUrl: AppConstants.backendBaseUrl,
+            connectTimeout: const Duration(milliseconds: 900),
+            receiveTimeout: const Duration(seconds: 3),
+            sendTimeout: const Duration(seconds: 3),
+            responseType: ResponseType.json,
+          ),
+        ),
+        super(MockSalesRepository().loadSnapshot()) {
     _restore();
+    _loadRemote();
   }
 
   String nextProductId() {
@@ -35,6 +49,7 @@ class SalesController extends StateNotifier<SalesSnapshot> {
   void addProduct(Produto produto) {
     state = state.copyWith(produtos: [...state.produtos, produto]);
     _persist();
+    _createRemoteProduct(produto);
   }
 
   void restockProduct(String produtoId, int amount) {
@@ -43,6 +58,7 @@ class SalesController extends StateNotifier<SalesSnapshot> {
       produtoId,
       (produto) => produto.copyWith(estoque: produto.estoque + amount),
     );
+    _syncRemoteStock(produtoId, mode: 'add', quantity: amount);
   }
 
   void adjustProductStock(String produtoId, int quantity) {
@@ -50,6 +66,7 @@ class SalesController extends StateNotifier<SalesSnapshot> {
       produtoId,
       (produto) => produto.copyWith(estoque: quantity.clamp(0, 999999).toInt()),
     );
+    _syncRemoteStock(produtoId, mode: 'set', quantity: quantity);
   }
 
   void confirmSale(Venda venda) {
@@ -75,6 +92,7 @@ class SalesController extends StateNotifier<SalesSnapshot> {
       vendas: [...state.vendas, venda],
     );
     _persist();
+    _createRemoteSale(venda);
   }
 
   void _replaceProduct(String produtoId, Produto Function(Produto) update) {
@@ -97,6 +115,57 @@ class SalesController extends StateNotifier<SalesSnapshot> {
 
   void _persist() {
     _storage.write(_storageKey, _snapshotToJson(state));
+  }
+
+  Future<void> _loadRemote() async {
+    try {
+      final response = await _dio.get('/sales/snapshot');
+      final data = response.data;
+      if (data is Map) {
+        state = _snapshotFromMap(Map<String, dynamic>.from(data)).copyWith(
+          hoje: _dateOnly(DateTime.now()),
+        );
+        _persist();
+      }
+    } catch (_) {
+      // Backend comercial indisponivel: segue com localStorage/mock.
+    }
+  }
+
+  Future<void> _createRemoteProduct(Produto produto) async {
+    try {
+      await _dio.post('/sales/products', data: _produtoToJson(produto));
+      await _loadRemote();
+    } catch (_) {
+      // Fallback local ja foi atualizado.
+    }
+  }
+
+  Future<void> _syncRemoteStock(
+    String produtoId, {
+    required String mode,
+    required int quantity,
+  }) async {
+    if (!_isRemoteId(produtoId)) return;
+    try {
+      await _dio.patch(
+        '/sales/products/$produtoId/stock',
+        data: {'mode': mode, 'quantity': quantity},
+      );
+      await _loadRemote();
+    } catch (_) {
+      // Fallback local ja foi atualizado.
+    }
+  }
+
+  Future<void> _createRemoteSale(Venda venda) async {
+    if (!_canSyncSale(venda)) return;
+    try {
+      await _dio.post('/sales/sales', data: _vendaToJson(venda));
+      await _loadRemote();
+    } catch (_) {
+      // Fallback local ja foi atualizado.
+    }
   }
 }
 
@@ -506,7 +575,10 @@ String _snapshotToJson(SalesSnapshot snapshot) {
 }
 
 SalesSnapshot _snapshotFromJson(String raw) {
-  final json = jsonDecode(raw) as Map<String, dynamic>;
+  return _snapshotFromMap(jsonDecode(raw) as Map<String, dynamic>);
+}
+
+SalesSnapshot _snapshotFromMap(Map<String, dynamic> json) {
   return SalesSnapshot(
     hoje: DateTime.parse(json['hoje'] as String),
     clientes: _list(json['clientes']).map(_clienteFromJson).toList(),
@@ -536,7 +608,7 @@ Map<String, dynamic> _clienteToJson(Cliente cliente) => {
 Cliente _clienteFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
   return Cliente(
-    id: json['id'] as String,
+    id: json['id'].toString(),
     nome: json['nome'] as String,
     telefone: json['telefone'] as String,
     bairro: json['bairro'] as String,
@@ -571,7 +643,7 @@ Map<String, dynamic> _produtoToJson(Produto produto) => {
 Produto _produtoFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
   return Produto(
-    id: json['id'] as String,
+    id: json['id'].toString(),
     nome: json['nome'] as String,
     categoria: json['categoria'] as String,
     precoBase: (json['precoBase'] as num).toDouble(),
@@ -603,8 +675,8 @@ Map<String, dynamic> _vendaToJson(Venda venda) => {
 Venda _vendaFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
   return Venda(
-    id: json['id'] as String,
-    clienteId: json['clienteId'] as String,
+    id: json['id'].toString(),
+    clienteId: json['clienteId'].toString(),
     data: DateTime.parse(json['data'] as String),
     itens: _list(json['itens']).map(_itemVendaFromJson).toList(),
     total: (json['total'] as num).toDouble(),
@@ -625,7 +697,7 @@ Map<String, dynamic> _itemVendaToJson(ItemVenda item) => {
 ItemVenda _itemVendaFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
   return ItemVenda(
-    produtoId: json['produtoId'] as String,
+    produtoId: json['produtoId'].toString(),
     quantidade: (json['quantidade'] as num).toInt(),
     precoUnitario: (json['precoUnitario'] as num).toDouble(),
   );
@@ -647,8 +719,8 @@ Map<String, dynamic> _parcelaToJson(Parcela parcela) => {
 Parcela _parcelaFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
   return Parcela(
-    id: json['id'] as String,
-    vendaId: json['vendaId'] as String,
+    id: json['id'].toString(),
+    vendaId: json['vendaId'].toString(),
     numero: (json['numero'] as num).toInt(),
     total: (json['total'] as num).toInt(),
     valor: (json['valor'] as num).toDouble(),
@@ -675,8 +747,8 @@ Map<String, dynamic> _pagamentoToJson(Pagamento pagamento) => {
 Pagamento _pagamentoFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
   return Pagamento(
-    id: json['id'] as String,
-    parcelaId: json['parcelaId'] as String,
+    id: json['id'].toString(),
+    parcelaId: json['parcelaId'].toString(),
     data: DateTime.parse(json['data'] as String),
     valor: (json['valor'] as num).toDouble(),
     forma: json['forma'] as String,
@@ -717,9 +789,9 @@ Map<String, dynamic> _notificacaoToJson(Notificacao notificacao) => {
 Notificacao _notificacaoFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
   return Notificacao(
-    id: json['id'] as String,
-    clienteId: json['clienteId'] as String,
-    parcelaId: json['parcelaId'] as String,
+    id: json['id'].toString(),
+    clienteId: json['clienteId'].toString(),
+    parcelaId: json['parcelaId'].toString(),
     tipo: _enumByName(
       NotificacaoTipo.values,
       json['tipo'],
@@ -733,6 +805,13 @@ Notificacao _notificacaoFromJson(Object? value) {
 }
 
 List<Object?> _list(Object? value) => (value as List?)?.cast<Object?>() ?? [];
+
+bool _isRemoteId(String id) => int.tryParse(id) != null;
+
+bool _canSyncSale(Venda venda) {
+  return _isRemoteId(venda.clienteId) &&
+      venda.itens.every((item) => _isRemoteId(item.produtoId));
+}
 
 T _enumByName<T extends Enum>(List<T> values, Object? raw, T fallback) {
   return values.firstWhere(

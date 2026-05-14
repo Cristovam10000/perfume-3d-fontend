@@ -3,9 +3,13 @@ class AppConstants {
 
   static const String appName = 'Perfume 3D';
 
-  // Base URL do backend local. Ajustar conforme ambiente.
-  // Em emulador Android use 10.0.2.2; em dispositivo físico, o IP da máquina.
-  static const String backendBaseUrl = 'http://192.168.0.5:8000';
+  // Base URL do backend local.
+  // Para celular/emulador, rode com:
+  // --dart-define=BACKEND_BASE_URL=http://IP_DA_MAQUINA:8000
+  static const String backendBaseUrl = String.fromEnvironment(
+    'BACKEND_BASE_URL',
+    defaultValue: 'http://localhost:8000',
+  );
 
   // Regras de captura
   static const int minImages = 12;
