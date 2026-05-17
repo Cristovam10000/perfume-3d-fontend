@@ -9,6 +9,13 @@ import '../../../../core/utils/image_quality_analyzer.dart';
 import '../../data/capture_repository.dart';
 import 'capture_state.dart';
 
+/// Controla a captura guiada por vista cardeal.
+///
+/// API principal:
+/// - [captureForView]: abre a câmera e atribui o resultado a uma vista.
+/// - [setCardinal] / [removeCardinal]: gerenciam slots de vistas cardeais.
+/// - [addExtra] / [removeExtraAt]: gerenciam fotos extras.
+/// - [submit]: envia ao backend com o campo `views` paralelo a `images`.
 class CaptureController extends StateNotifier<CaptureState> {
   CaptureController(this._ref) : super(const CaptureState()) {
     _recomputeQuality();
@@ -20,107 +27,96 @@ class CaptureController extends StateNotifier<CaptureState> {
 
   void _recomputeQuality() {
     state = state.copyWith(
-      qualityMessages: _analyzer.evaluate(imageCount: state.images.length),
+      qualityMessages: _analyzer.evaluate(
+        cardinalCount: state.cardinalCount,
+        extrasCount: state.extras.length,
+      ),
     );
   }
 
-  Future<void> captureFromCamera() async {
-    if (state.images.length >= AppConstants.maxImages) return;
+  /// Atribui um arquivo capturado a uma vista cardeal específica.
+  ///
+  /// Se [view] for `extra`, adiciona à lista de extras (respeitando o limite).
+  /// Se for uma cardeal, substitui o slot — útil para "refazer".
+  void setCardinal(String view, File file) {
+    if (view == 'extra') {
+      addExtra(file);
+      return;
+    }
+    if (!AppConstants.cardinalViews.contains(view)) {
+      state = state.copyWith(error: 'Vista inválida: $view');
+      return;
+    }
+    final updated = Map<String, File?>.from(state.cardinals);
+    updated[view] = file;
+    state = state.copyWith(cardinals: updated, clearError: true);
+    _recomputeQuality();
+  }
+
+  /// Remove a foto de uma vista cardeal (volta o slot a vazio).
+  void removeCardinal(String view) {
+    if (!AppConstants.cardinalViews.contains(view)) return;
+    final updated = Map<String, File?>.from(state.cardinals);
+    updated[view] = null;
+    state = state.copyWith(cardinals: updated);
+    _recomputeQuality();
+  }
+
+  /// Adiciona uma foto extra (não rotulada), se houver espaço.
+  void addExtra(File file) {
+    if (!state.canAddExtra) return;
+    state = state.copyWith(
+      extras: [...state.extras, file],
+      clearError: true,
+    );
+    _recomputeQuality();
+  }
+
+  void removeExtraAt(int index) {
+    if (index < 0 || index >= state.extras.length) return;
+    final updated = [...state.extras]..removeAt(index);
+    state = state.copyWith(extras: updated);
+    _recomputeQuality();
+  }
+
+  /// Captura via câmera nativa (image_picker) e atribui à vista alvo.
+  /// Útil para fluxos sem o `CameraController` customizado.
+  Future<void> captureForView(String view) async {
+    if (state.uploading) return;
     try {
       final xfile = await _picker.pickImage(
         source: ImageSource.camera,
         imageQuality: 90,
       );
       if (xfile == null) return;
-      addCapturedFile(File(xfile.path));
+      setCardinal(view, File(xfile.path));
     } catch (e) {
       state = state.copyWith(error: 'Falha ao acessar a câmera: $e');
     }
   }
 
-  /// Adiciona ao estado um arquivo já capturado externamente (ex.: pelo
-  /// CameraController da própria página de captura).
-  void addCapturedFile(File file) {
-    if (state.images.length >= AppConstants.maxImages) return;
-    final updated = [...state.images, file];
-    state = state.copyWith(images: updated, clearError: true);
-    _recomputeQuality();
-  }
-
-  int _addPickedFiles(List<XFile> files) {
-    if (files.isEmpty) return 0;
-    final remaining = AppConstants.maxImages - state.images.length;
-    if (remaining <= 0) return 0;
-
-    final selected = files.take(remaining).map((x) => File(x.path)).toList();
-    final merged = [...state.images, ...selected];
-    final capped = merged.length > AppConstants.maxImages
-        ? merged.sublist(0, AppConstants.maxImages)
-        : merged;
-    state = state.copyWith(images: capped, clearError: true);
-    _recomputeQuality();
-    return selected.length;
-  }
-
-  Future<int> pickFromGallery() async {
-    if (state.selectingFromGallery) return 0;
+  /// Seleciona uma única imagem da galeria e atribui a uma vista.
+  Future<void> pickFromGalleryForView(String view) async {
+    if (state.selectingFromGallery) return;
     state = state.copyWith(selectingFromGallery: true, clearError: true);
     try {
-      final files = await _picker.pickMultiImage(imageQuality: 90);
-      if (files.isEmpty) {
-        state = state.copyWith(selectingFromGallery: false);
-        return 0;
+      final xfile = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 90,
+      );
+      if (xfile != null) {
+        setCardinal(view, File(xfile.path));
       }
-
-      final added = _addPickedFiles(files);
-      state = state.copyWith(selectingFromGallery: false);
-      return added;
     } on PlatformException catch (e) {
       final message = e.code == 'already_active'
-          ? 'A galeria ainda está aberta ou processando a seleção anterior. Aguarde alguns segundos e tente novamente.'
-          : 'Falha ao selecionar imagens: $e';
-      state = state.copyWith(
-        selectingFromGallery: false,
-        error: message,
-      );
-      return 0;
+          ? 'A galeria ainda está aberta. Aguarde e tente novamente.'
+          : 'Falha ao selecionar imagem: $e';
+      state = state.copyWith(error: message);
     } catch (e) {
-      state = state.copyWith(
-        selectingFromGallery: false,
-        error: 'Falha ao selecionar imagens: $e',
-      );
-      return 0;
+      state = state.copyWith(error: 'Falha ao selecionar imagem: $e');
+    } finally {
+      state = state.copyWith(selectingFromGallery: false);
     }
-  }
-
-  Future<int> recoverLostGallerySelection() async {
-    try {
-      final response = await _picker.retrieveLostData();
-      if (response.isEmpty) return 0;
-      if (response.exception != null) {
-        state = state.copyWith(
-          error:
-              'Falha ao recuperar imagens selecionadas: ${response.exception}',
-        );
-        return 0;
-      }
-
-      final files = response.files;
-      if (files == null || files.isEmpty) return 0;
-      return _addPickedFiles(files);
-    } catch (e) {
-      state = state.copyWith(
-        error: 'Falha ao recuperar imagens selecionadas: $e',
-      );
-      return 0;
-    }
-  }
-
-  void removeAt(int index) {
-    if (index < 0 || index >= state.images.length) return;
-    final updated = [...state.images]..removeAt(index);
-    state = state.copyWith(images: updated);
-    _recomputeQuality();
   }
 
   void clear() {
@@ -128,16 +124,28 @@ class CaptureController extends StateNotifier<CaptureState> {
     _recomputeQuality();
   }
 
-  /// Envia as imagens e retorna o jobId para acompanhamento.
-  /// Não realiza navegação; a UI observa e decide.
+  /// Envia as imagens com seus rótulos de vista e retorna o jobId.
+  ///
+  /// Não navega; a UI observa e decide. Exige que todas as 4 cardeais
+  /// estejam preenchidas (`state.allCardinalsFilled`).
   Future<String?> submit() async {
-    if (state.images.isEmpty) return null;
-    state =
-        state.copyWith(uploading: true, uploadProgress: 0, clearError: true);
+    if (!state.allCardinalsFilled) {
+      state = state.copyWith(
+        error: 'Capture as 4 vistas (frente, esquerda, trás, direita) antes de enviar.',
+      );
+      return null;
+    }
+    final upload = state.flattenForUpload();
+    state = state.copyWith(
+      uploading: true,
+      uploadProgress: 0,
+      clearError: true,
+    );
     try {
       final repo = _ref.read(captureRepositoryProvider);
       final result = await repo.uploadImages(
-        state.images,
+        upload.files,
+        views: upload.views,
         onProgress: (p) => state = state.copyWith(uploadProgress: p),
       );
       state = state.copyWith(uploading: false, uploadProgress: 1);

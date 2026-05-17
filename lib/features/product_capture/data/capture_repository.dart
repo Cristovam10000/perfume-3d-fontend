@@ -13,8 +13,14 @@ class UploadResult {
 }
 
 abstract class CaptureRepository {
+  /// Envia as imagens com rótulos de vista paralelos.
+  ///
+  /// [views] deve ter o mesmo tamanho de [images]. Cada valor é um dos:
+  /// `front`, `left`, `back`, `right`, `extra` ou `''` (sem rótulo).
+  /// Quando omitido ou vazio, o backend usa CLIPViewRouter.
   Future<UploadResult> uploadImages(
     List<File> images, {
+    List<String>? views,
     void Function(double progress)? onProgress,
   });
 }
@@ -26,10 +32,16 @@ class CaptureRepositoryImpl implements CaptureRepository {
   @override
   Future<UploadResult> uploadImages(
     List<File> images, {
+    List<String>? views,
     void Function(double progress)? onProgress,
   }) async {
+    if (views != null && views.length != images.length) {
+      throw UploadException(
+        'Quantidade de views (${views.length}) precisa bater com imagens (${images.length}).',
+      );
+    }
     try {
-      final formData = FormData.fromMap({
+      final formMap = <String, dynamic>{
         'images': [
           for (final f in images)
             await MultipartFile.fromFile(
@@ -37,7 +49,11 @@ class CaptureRepositoryImpl implements CaptureRepository {
               filename: f.uri.pathSegments.last,
             ),
         ],
-      });
+      };
+      if (views != null && views.isNotEmpty) {
+        formMap['views'] = views;
+      }
+      final formData = FormData.fromMap(formMap);
 
       final response = await _dio.post(
         '/captures',

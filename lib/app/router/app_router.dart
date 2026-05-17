@@ -2,9 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/processing/presentation/pages/processing_status_page.dart';
-import '../../features/product_capture/presentation/pages/capture_camera_page.dart';
 import '../../features/product_capture/presentation/pages/capture_intro_page.dart';
-import '../../features/product_capture/presentation/pages/capture_review_page.dart';
+import '../../features/product_capture/presentation/pages/capture_views_page.dart';
 import '../../features/product_capture/presentation/state/capture_controller.dart';
 import '../../features/product_viewer/presentation/pages/product_3d_viewer_page.dart';
 import '../../features/processing/presentation/state/processing_controller.dart';
@@ -74,7 +73,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.captureByProduct,
         name: AppRoutes.captureByProductName,
-        builder: (_, __) => const CaptureCameraPage(),
+        builder: (_, __) => const CaptureViewsPage(),
       ),
       GoRoute(
         path: AppRoutes.processingByJob,
@@ -94,17 +93,20 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.captureCamera,
         name: AppRoutes.captureCameraName,
-        builder: (_, __) => const CaptureCameraPage(),
+        builder: (_, __) => const CaptureViewsPage(),
       ),
       GoRoute(
         path: AppRoutes.captureReview,
         name: AppRoutes.captureReviewName,
         redirect: (context, state) {
-          final images = ref.read(captureControllerProvider).images;
-          if (images.isEmpty) return AppRoutes.captureCamera;
+          // Mantida por compat — fluxo novo concentra captura e revisão na
+          // mesma tela. Se não há nada capturado, redireciona pro grid.
+          final cardinals =
+              ref.read(captureControllerProvider).cardinalCount;
+          if (cardinals == 0) return AppRoutes.captureCamera;
           return null;
         },
-        builder: (_, __) => const CaptureReviewPage(),
+        builder: (_, __) => const CaptureViewsPage(),
       ),
       GoRoute(
         path: AppRoutes.processing,

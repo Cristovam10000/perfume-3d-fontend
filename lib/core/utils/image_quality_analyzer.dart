@@ -8,39 +8,39 @@ class QualityMessage {
   const QualityMessage(this.text, this.level);
 }
 
-/// Heurísticas simples para orientação ao usuário durante a captura.
-/// Este MVP não analisa pixels — apenas responde à contagem e ao contexto.
-/// A feature pode evoluir para inspeção real (luminância, nitidez) sem
-/// mudar a API pública.
+/// Heurísticas de orientação durante a captura guiada.
+///
+/// O fluxo novo é por vista cardeal (4 obrigatórias + até 2 extras), então
+/// as mensagens guiam o usuário até completar as 4 cardeais — não importa
+/// a contagem total, mas qual cardeal ainda falta.
 class ImageQualityAnalyzer {
   const ImageQualityAnalyzer();
 
-  List<QualityMessage> evaluate({required int imageCount}) {
+  List<QualityMessage> evaluate({
+    required int cardinalCount,
+    int extrasCount = 0,
+  }) {
     final messages = <QualityMessage>[];
 
-    if (imageCount == 0) {
+    if (cardinalCount == 0) {
       messages.add(const QualityMessage(
-        'Capture a primeira imagem do perfume centralizado no enquadramento.',
+        'Comece capturando a vista FRENTE do perfume.',
         QualityLevel.warning,
       ));
-    } else if (imageCount < AppConstants.minImages) {
-      final faltam = AppConstants.minImages - imageCount;
+    } else if (cardinalCount < AppConstants.requiredImages) {
+      final faltam = AppConstants.requiredImages - cardinalCount;
       messages.add(QualityMessage(
-        'Faltam mais imagens. Capture ao menos $faltam ângulos adicionais.',
+        'Faltam $faltam vista(s) cardeal(is) para enviar.',
         QualityLevel.warning,
       ));
+    } else if (extrasCount < AppConstants.maxExtras) {
       messages.add(const QualityMessage(
-        'Gire o perfume em passos pequenos para cobrir todos os ângulos.',
-        QualityLevel.ok,
-      ));
-    } else if (imageCount < AppConstants.recommendedImages) {
-      messages.add(const QualityMessage(
-        'Boa cobertura. Capture mais ângulos para melhorar a reconstrução.',
+        'Todas as cardeais prontas. Você pode enviar ou adicionar até 2 extras.',
         QualityLevel.ok,
       ));
     } else {
       messages.add(const QualityMessage(
-        'Cobertura excelente. Você pode seguir para a revisão.',
+        'Captura completa (4 cardeais + 2 extras). Pronto para enviar.',
         QualityLevel.ok,
       ));
     }
@@ -53,6 +53,6 @@ class ImageQualityAnalyzer {
         'Mantenha boa iluminação e evite sombras fortes.',
         'Centralize o perfume no guia de enquadramento.',
         'Evite reflexos e fundo poluído.',
-        'Aproxime ou afaste até preencher bem o quadro.',
+        'Use fundo claro para o algoritmo destacar o frasco.',
       ];
 }

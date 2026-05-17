@@ -26,9 +26,9 @@ class CaptureIntroPage extends StatelessWidget {
           SizedBox(height: 12),
           InstructionCard(
             icon: Icons.threed_rotation,
-            title: 'Vários ângulos',
+            title: '4 vistas cardeais',
             description:
-                'Dê a volta no perfume capturando pequenos incrementos de rotação.',
+                'Capture frente, esquerda, trás e direita. Mantenha a mesma altura e distância nas 4 fotos.',
           ),
           SizedBox(height: 12),
           InstructionCard(
@@ -42,14 +42,15 @@ class CaptureIntroPage extends StatelessWidget {
             icon: Icons.auto_awesome_outlined,
             title: 'Fundo limpo',
             description:
-                'Use um fundo neutro e sem objetos que possam confundir o algoritmo.',
+                'Use um fundo neutro (folha A4 branca é ótimo) e sem decorações no frasco.',
           ),
           SizedBox(height: 12),
           InstructionCard(
             icon: Icons.photo_library_outlined,
-            title: 'Quantidade mínima',
+            title: 'Quantidade',
             description:
-                'Capture ao menos ${AppConstants.minImages} imagens. O ideal é ${AppConstants.recommendedImages}.',
+                '${AppConstants.requiredImages} vistas obrigatórias + até '
+                '${AppConstants.maxExtras} fotos extras opcionais.',
           ),
         ],
       ),

@@ -2,16 +2,23 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/app_constants.dart';
 
+/// Mostra progresso de captura cardeal (X / 4 vistas + Y extras).
 class ImageCounter extends StatelessWidget {
-  final int count;
-  const ImageCounter({super.key, required this.count});
+  final int cardinalCount;
+  final int extrasCount;
+  const ImageCounter({
+    super.key,
+    required this.cardinalCount,
+    this.extrasCount = 0,
+  });
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final progress =
-        (count / AppConstants.recommendedImages).clamp(0.0, 1.0).toDouble();
-    final reachedMin = count >= AppConstants.minImages;
+    final progress = (cardinalCount / AppConstants.requiredImages)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final allCardinals = cardinalCount >= AppConstants.requiredImages;
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -25,18 +32,20 @@ class ImageCounter extends StatelessWidget {
           Row(
             children: [
               Icon(
-                reachedMin ? Icons.check_circle : Icons.photo_camera,
-                color: reachedMin ? scheme.primary : scheme.onSurfaceVariant,
+                allCardinals ? Icons.check_circle : Icons.photo_camera,
+                color: allCardinals ? scheme.primary : scheme.onSurfaceVariant,
                 size: 20,
               ),
               const SizedBox(width: 8),
               Text(
-                '$count / ${AppConstants.recommendedImages} imagens',
+                '$cardinalCount / ${AppConstants.requiredImages} vistas',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const Spacer(),
               Text(
-                reachedMin ? 'mínimo atingido' : 'mínimo: ${AppConstants.minImages}',
+                extrasCount > 0
+                    ? '+ $extrasCount extra${extrasCount > 1 ? 's' : ''}'
+                    : 'até ${AppConstants.maxExtras} extras',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],

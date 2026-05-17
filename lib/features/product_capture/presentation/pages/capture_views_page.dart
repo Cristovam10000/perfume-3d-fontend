@@ -1,0 +1,358 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+
+import '../../../../app/router/app_routes.dart';
+import '../../../../core/constants/app_constants.dart';
+import '../../../../shared/widgets/app_scaffold.dart';
+import '../../../../shared/widgets/image_counter.dart';
+import '../../../../shared/widgets/primary_button.dart';
+import '../../../../shared/widgets/quality_banner.dart';
+import '../../../processing/presentation/state/processing_controller.dart';
+import '../state/capture_controller.dart';
+
+/// Tela principal de captura guiada (grid 4 vistas + 2 extras).
+///
+/// Cada slot abre a câmera nativa direcionada à vista correspondente.
+/// O botão "Enviar" só ativa quando as 4 cardeais estão preenchidas.
+class CaptureViewsPage extends ConsumerWidget {
+  const CaptureViewsPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(captureControllerProvider);
+    final controller = ref.read(captureControllerProvider.notifier);
+
+    Future<void> onSubmit() async {
+      final jobId = await controller.submit();
+      if (!context.mounted) return;
+      if (jobId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(state.error ?? 'Falha no envio.')),
+        );
+        return;
+      }
+      ref.read(processingControllerProvider.notifier).start(jobId);
+      context.goNamed(AppRoutes.processingName);
+    }
+
+    return AppScaffold(
+      title: 'Captura guiada',
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        children: [
+          ImageCounter(
+            cardinalCount: state.cardinalCount,
+            extrasCount: state.extras.length,
+          ),
+          const SizedBox(height: 12),
+          if (state.qualityMessages.isNotEmpty)
+            QualityBanner(message: state.qualityMessages.first),
+          const SizedBox(height: 12),
+          GridView.count(
+            crossAxisCount: 2,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            childAspectRatio: 0.85,
+            children: [
+              for (final view in AppConstants.cardinalViews)
+                _CardinalSlot(
+                  view: view,
+                  file: state.cardinals[view],
+                  disabled: state.uploading,
+                  onCapture: () => _captureFor(context, controller, view),
+                  onClear: () => controller.removeCardinal(view),
+                ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _ExtrasSection(
+            extras: state.extras,
+            canAdd: state.canAddExtra && !state.uploading,
+            onAdd: () => _addExtra(context, controller),
+            onRemove: state.uploading ? null : controller.removeExtraAt,
+          ),
+          if (state.uploading) ...[
+            const SizedBox(height: 16),
+            LinearProgressIndicator(value: state.uploadProgress),
+          ],
+          if (state.error != null) ...[
+            const SizedBox(height: 16),
+            Text(
+              state.error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+        ],
+      ),
+      bottomBar: PrimaryButton(
+        label: state.allCardinalsFilled
+            ? 'Enviar para processamento'
+            : 'Capture as 4 vistas (${state.cardinalCount}/4)',
+        icon: Icons.cloud_upload_outlined,
+        loading: state.uploading,
+        onPressed: state.canSubmit ? onSubmit : null,
+      ),
+    );
+  }
+
+  Future<void> _captureFor(
+    BuildContext context,
+    CaptureController controller,
+    String view,
+  ) async {
+    final source = await _pickSource(context);
+    if (source == null) return;
+    if (source == ImageSource.camera) {
+      await controller.captureForView(view);
+    } else {
+      await controller.pickFromGalleryForView(view);
+    }
+  }
+
+  Future<void> _addExtra(
+    BuildContext context,
+    CaptureController controller,
+  ) async {
+    final picker = ImagePicker();
+    final source = await _pickSource(context);
+    if (source == null) return;
+    final xfile = await picker.pickImage(source: source, imageQuality: 90);
+    if (xfile != null) {
+      controller.addExtra(File(xfile.path));
+    }
+  }
+
+  Future<ImageSource?> _pickSource(BuildContext context) {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera),
+              title: const Text('Câmera'),
+              onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Galeria'),
+              onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CardinalSlot extends StatelessWidget {
+  final String view;
+  final File? file;
+  final bool disabled;
+  final VoidCallback onCapture;
+  final VoidCallback onClear;
+
+  const _CardinalSlot({
+    required this.view,
+    required this.file,
+    required this.disabled,
+    required this.onCapture,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final label = AppConstants.viewLabels[view] ?? view;
+    final filled = file != null;
+
+    return InkWell(
+      onTap: disabled ? null : onCapture,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        decoration: BoxDecoration(
+          color: filled ? scheme.surface : scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: filled ? scheme.primary : scheme.outlineVariant,
+            width: filled ? 2 : 1,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (filled)
+              Image.file(file!, fit: BoxFit.cover)
+            else
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.add_a_photo_outlined,
+                      size: 32,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Tocar para tirar',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                color: Colors.black.withValues(alpha: 0.55),
+                child: Row(
+                  children: [
+                    Text(
+                      label,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (filled)
+                      InkWell(
+                        onTap: disabled ? null : onClear,
+                        child: const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExtrasSection extends StatelessWidget {
+  final List<File> extras;
+  final bool canAdd;
+  final VoidCallback onAdd;
+  final void Function(int)? onRemove;
+
+  const _ExtrasSection({
+    required this.extras,
+    required this.canAdd,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Extras (${extras.length}/${AppConstants.maxExtras})',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Ângulos opcionais. O algoritmo escolhe ou descarta.',
+          style: TextStyle(
+            color: scheme.onSurfaceVariant,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var i = 0; i < extras.length; i++)
+              _ExtraThumb(
+                file: extras[i],
+                onRemove: onRemove == null ? null : () => onRemove!(i),
+              ),
+            if (canAdd)
+              InkWell(
+                onTap: onAdd,
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: scheme.outlineVariant),
+                  ),
+                  child: Icon(
+                    Icons.add,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _ExtraThumb extends StatelessWidget {
+  final File file;
+  final VoidCallback? onRemove;
+
+  const _ExtraThumb({required this.file, required this.onRemove});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Image.file(
+            file,
+            width: 80,
+            height: 80,
+            fit: BoxFit.cover,
+          ),
+        ),
+        if (onRemove != null)
+          Positioned(
+            top: 2,
+            right: 2,
+            child: Material(
+              color: Colors.black.withValues(alpha: 0.55),
+              shape: const CircleBorder(),
+              child: InkWell(
+                customBorder: const CircleBorder(),
+                onTap: onRemove,
+                child: const Padding(
+                  padding: EdgeInsets.all(2),
+                  child: Icon(Icons.close, color: Colors.white, size: 14),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
