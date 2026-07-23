@@ -39,9 +39,9 @@ Card com icone, titulo e descricao. Usado na `HomePage` antiga e na intro de cap
 
 Mostra progresso de imagens capturadas:
 
-- `count / AppConstants.recommendedImages`;
-- label de minimo atingido ou minimo necessario;
-- `LinearProgressIndicator`.
+- `cardinalCount / AppConstants.requiredImages`;
+- quantidade de extras e limite `AppConstants.maxExtras`;
+- `LinearProgressIndicator` baseado nas quatro vistas obrigatorias.
 
 ### `QualityBanner`
 

@@ -9,10 +9,11 @@
 | Constante | Valor atual | Uso |
 |---|---:|---|
 | `appName` | `Perfume 3D` | Nome logico do app. |
-| `backendBaseUrl` | `http://192.168.0.3:8000` | Base URL do backend de captura/processamento. |
-| `minImages` | `12` | Minimo recomendado para revisao/upload. |
-| `recommendedImages` | `24` | Alvo visual do contador. |
-| `maxImages` | `60` | Limite superior de imagens. |
+| `backendBaseUrl` | `BACKEND_BASE_URL`, default `http://localhost:8000` | Base URL dos dominios de captura e vendas. |
+| `cardinalViews` | `front`, `left`, `back`, `right` | Vistas obrigatorias esperadas pelo Hunyuan3D-2mv. |
+| `requiredImages` | `4` | Quantidade de vistas cardeais obrigatorias. |
+| `maxExtras` | `2` | Fotos adicionais opcionais. |
+| `maxImages` | `6` | Quatro cardeais mais duas extras. |
 | `processingPollInterval` | `3s` | Intervalo do polling. |
 
 ## `errors/app_exception.dart`
@@ -44,7 +45,7 @@ Consumidores:
 - `CaptureRepositoryImpl`;
 - `ProcessingRepositoryImpl`.
 
-O modulo `sales` nao usa Dio hoje.
+O modulo `sales` tambem usa Dio, mas cria um cliente proprio no `SalesController`, com timeouts menores e fallback para o snapshot local/mockado quando `/sales/*` nao responde.
 
 ## `utils/app_formatters.dart`
 
@@ -133,12 +134,12 @@ Importante: o tracker guarda `cv.Mat` em memoria nativa. Por isso `LiveCaptureCo
 
 ## `utils/image_quality_analyzer.dart`
 
-Este utilitario nao analisa pixels. Ele produz mensagens de orientacao a partir da quantidade de imagens capturadas:
+Este utilitario nao analisa pixels. Ele produz mensagens de orientacao a partir da cobertura das vistas:
 
 - `0`: incentive a primeira captura;
-- abaixo de `minImages`: avisa quantas faltam;
-- abaixo de `recommendedImages`: cobertura boa, mas pode melhorar;
-- acima do recomendado: cobertura excelente.
+- entre 1 e 3 cardeais: informa quantas vistas obrigatorias faltam;
+- 4 cardeais: libera o envio e sugere ate duas extras;
+- 4 cardeais + 2 extras: informa que a captura esta completa.
 
 As mensagens usam:
 

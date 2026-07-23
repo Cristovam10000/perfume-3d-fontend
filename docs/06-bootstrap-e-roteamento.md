@@ -68,18 +68,18 @@ As constantes ficam em [app_routes.dart](../lib/app/router/app_routes.dart).
 | `/cobranca` | `billing` | `BillingPage` |
 | `/produtos` | `products` | `ProductsPage` |
 | `/produto/:id/3d` | `product-3d` | `Product3DPage` |
-| `/captura/:produtoId` | `capture-by-product` | `CaptureCameraPage` |
+| `/captura/:produtoId` | `capture-by-product` | `CaptureViewsPage` |
 | `/processando/:jobId` | `processing-by-job` | `ProcessingStatusPage` |
 | `/notificacoes` | `notifications` | `NotificationsPage` |
 | `/capture/intro` | `capture-intro` | `CaptureIntroPage` |
-| `/capture/camera` | `capture-camera` | `CaptureCameraPage` |
-| `/capture/review` | `capture-review` | `CaptureReviewPage` |
+| `/capture/camera` | `capture-camera` | `CaptureViewsPage` |
+| `/capture/review` | `capture-review` | `CaptureViewsPage` (compatibilidade) |
 | `/processing` | `processing` | `ProcessingStatusPage` |
 | `/viewer` | `viewer` | `Product3DViewerPage` |
 
 Observacoes importantes:
 
-- `/captura/:produtoId` ja existe para entrada a partir de produto, mas o `produtoId` ainda nao e usado pela tela de camera.
+- `/captura/:produtoId` ja existe para entrada a partir de produto, mas o `produtoId` ainda nao e repassado ao envio.
 - `/processando/:jobId` ja existe, mas a tela nao reidrata o `ProcessingController` a partir do parametro.
 - A rota inicial `/` abre `HomeDashboardPage`, nao `features/home/HomePage`.
 
@@ -88,11 +88,11 @@ Observacoes importantes:
 ### `/capture/review`
 
 ```dart
-final images = ref.read(captureControllerProvider).images;
-if (images.isEmpty) return AppRoutes.captureCamera;
+final cardinals = ref.read(captureControllerProvider).cardinalCount;
+if (cardinals == 0) return AppRoutes.captureCamera;
 ```
 
-Evita abrir revisao sem imagens.
+Mantem a rota antiga compativel e evita abrir o grid em um estado de revisao vazio.
 
 ### `/viewer`
 

@@ -2,7 +2,7 @@
 
 `sales` e a feature principal da experiencia atual. Ela transforma o app em uma ferramenta de apoio para venda de perfumes: clientes, cobranca, catalogo, vendas parceladas e modelos 3D.
 
-A camada de dados e **HTTP-first com fallback mock** - o `SalesController` consome `/sales/*` do backend FastAPI ([13 - Endpoints HTTP](../../back/docs/13-endpoints-http.md)) e, em offline, mantem o estado em `localStorage` + dados sementes do `MockSalesRepository`. Detalhes em [16 - Contrato do backend](16-contrato-backend.md) e na secao **Data** abaixo.
+A camada de dados e **HTTP-first com fallback mock** - o `SalesController` consome `/sales/*` do backend FastAPI ([13 - Endpoints HTTP](../../perfume-3d-backend/docs/13-endpoints-http.md)) e, em offline, mantem o estado em `localStorage` + dados sementes do `MockSalesRepository`. Detalhes em [16 - Contrato do backend](16-contrato-backend.md) e na secao **Data** abaixo.
 
 ## Estrutura
 
@@ -319,12 +319,12 @@ O teste usa `ProviderScope(child: PerfumeApp())`, entao valida o app real com ro
 
 ## Limitacoes atuais
 
-- Dados nao persistem.
-- `SyncStatus` e visual.
-- Cadastro de cliente/produto nao implementado.
+- No Web, o snapshot local persiste em `localStorage`; nas demais plataformas, o fallback atual dura apenas enquanto o processo esta aberto.
+- A sincronizacao HTTP e *best-effort*: nao ha fila duravel de retry, resolucao de conflitos nem autenticacao.
+- Cadastro de cliente ainda nao esta implementado; cadastro e ajuste de estoque de produto ja existem.
 - Acoes de telefone/chat/WhatsApp sao placeholders.
-- Venda criada pelo wizard existe apenas via `GoRouter.extra`.
-- Captura por produto ainda nao vincula imagens ao produto.
+- A venda confirmada atualiza o `SalesController`, persiste o snapshot disponivel e tenta sincronizar com o backend; `GoRouter.extra` serve apenas para abrir imediatamente o detalhe.
+- Captura por produto ainda nao repassa `produtoId` ao fluxo de envio.
 
 ## Proxima leitura
 

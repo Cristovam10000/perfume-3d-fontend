@@ -20,7 +20,7 @@ O app simula a rotina de uma vendedora de perfumes que precisa:
 - abrir modelos 3D quando disponiveis;
 - capturar novas fotos de produto para gerar um modelo 3D em backend externo.
 
-O modulo 3D continua resolvendo o problema original do TCC: orientar um usuario leigo a capturar imagens boas o suficiente para fotogrametria, usando camera, acelerometro, analise de frame e comparacao ORB.
+O modulo 3D continua resolvendo o problema original do TCC: orientar um usuario leigo a capturar vistas adequadas para reconstrucao 3D multiview, usando camera, acelerometro, analise de frame e comparacao ORB.
 
 ## Jornadas principais
 
@@ -39,8 +39,8 @@ O modulo 3D continua resolvendo o problema original do TCC: orientar um usuario 
 ### Jornada de captura 3D
 
 1. **Intro de captura** - [CaptureIntroPage](../lib/features/product_capture/presentation/pages/capture_intro_page.dart): orientacoes antes da camera.
-2. **Camera** - [CaptureCameraPage](../lib/features/product_capture/presentation/pages/capture_camera_page.dart): preview, overlay, banners de qualidade e captura/galeria.
-3. **Revisao** - [CaptureReviewPage](../lib/features/product_capture/presentation/pages/capture_review_page.dart): grid de imagens, remocao e upload.
+2. **Captura por vista** - [CaptureViewsPage](../lib/features/product_capture/presentation/pages/capture_views_page.dart): grid das quatro vistas cardeais e de ate duas extras.
+3. **Revisao e envio** - a mesma tela permite substituir/remover fotos e envia `images` e `views` paralelos ao backend.
 4. **Processamento** - [ProcessingStatusPage](../lib/features/processing/presentation/pages/processing_status_page.dart): polling do backend a cada 3 segundos.
 5. **Viewer final** - [Product3DViewerPage](../lib/features/product_viewer/presentation/pages/product_3d_viewer_page.dart): renderiza o modelo retornado pelo backend.
 
@@ -53,7 +53,7 @@ O modulo 3D continua resolvendo o problema original do TCC: orientar um usuario 
 ## Dentro do escopo atual
 
 - App Flutter em pt-BR, com tema claro customizado.
-- Dashboard comercial baseado em dados mockados.
+- Dashboard comercial iniciado com dados de demonstracao, persistencia local e sincronizacao HTTP *best-effort*.
 - Modelos de dominio para clientes, produtos, vendas, parcelas, pagamentos e notificacoes.
 - Wizard de venda com testes de widget.
 - Catalogo com visualizacao 3D quando `modelo3DPath` existe.
@@ -64,11 +64,11 @@ O modulo 3D continua resolvendo o problema original do TCC: orientar um usuario 
 
 ## Fora do escopo atual
 
-- Persistencia local real para vendas/clientes.
-- Backend comercial para `sales`.
 - Login, contas e permissoes de usuario.
-- Sincronizacao remota real, apesar de existir `SyncStatus` visual.
-- Cadastro real de cliente/produto; alguns botoes sao placeholders.
+- Sincronizacao robusta com fila duravel, retry e resolucao de conflitos.
+- Persistencia duravel fora do Web para o fallback local.
+- Cadastro de cliente; cadastro de produto ja esta implementado.
+- Vinculo efetivo entre a rota de captura e o produto selecionado.
 - AR no viewer (`ar: false` no pipeline de captura).
 - Cache offline de modelos 3D.
 - Telemetria, crash reporting e analytics.

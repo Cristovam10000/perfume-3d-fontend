@@ -1,8 +1,8 @@
 # 09 - Feature `product_capture`
 
-`product_capture` e o modulo de captura guiada de imagens para reconstrucao 3D. Ele continua ativo e pode ser acessado por rotas antigas (`/capture/...`) ou pelo atalho comercial `/captura/:produtoId`.
+`product_capture` implementa a captura guiada das vistas usadas na reconstrucao 3D. O fluxo ativo exige quatro vistas cardeais (`front`, `left`, `back`, `right`) e aceita ate duas imagens extras.
 
-## Estrutura
+## Estrutura ativa
 
 ```text
 lib/features/product_capture/
@@ -12,184 +12,78 @@ lib/features/product_capture/
     captured_image.dart
   presentation/
     pages/
-      capture_camera_page.dart
       capture_intro_page.dart
-      capture_review_page.dart
+      capture_views_page.dart
     state/
       capture_controller.dart
       capture_state.dart
-      live_capture_controller.dart
 ```
 
-## Domain
+`capture_camera_page.dart`, `capture_review_page.dart` e `live_capture_controller.dart` permanecem no codigo como implementacao anterior com preview customizado, sensores e ORB. As rotas atuais concentram captura e revisao em `CaptureViewsPage`.
 
-### `captured_image.dart`
+## Contrato de captura
 
-Modelo simples:
-
-```dart
-class CapturedImage {
-  final File file;
-  final DateTime capturedAt;
-}
-```
-
-Observacao: o estado ativo da captura usa `List<File>` diretamente em `CaptureState`. `CapturedImage` esta pronto para evolucao, mas nao e o tipo usado na lista principal hoje.
-
-## Data
-
-### `capture_repository.dart`
-
-`CaptureRepositoryImpl.uploadImages` recebe `List<File>` e envia multipart:
+[capture_repository.dart](../lib/features/product_capture/data/capture_repository.dart) envia `images` e, quando disponivel, a lista paralela `views`:
 
 ```dart
-final formData = FormData.fromMap({
+final formMap = <String, dynamic>{
   'images': [
-    for (final f in images)
-      await MultipartFile.fromFile(
-        f.path,
-        filename: f.uri.pathSegments.last,
-      ),
+    for (final file in images)
+      await MultipartFile.fromFile(file.path),
   ],
-});
-
-final response = await _dio.post('/captures', data: formData);
+};
+if (views != null && views.isNotEmpty) {
+  formMap['views'] = views;
+}
+await dio.post('/captures', data: FormData.fromMap(formMap));
 ```
 
-Contrato esperado:
+- `views.length` precisa coincidir com `images.length`.
+- Rotulos aceitos: `front`, `left`, `back`, `right`, `extra` ou string vazia.
+- A resposta esperada contem `jobId` como string.
+- Erros de Dio sao convertidos em `UploadException`.
 
-- request: campo multipart `images`;
-- response: JSON com `jobId` string.
+## Estado
 
-Se a resposta nao tiver `jobId`, o repositorio lanca `UploadException`.
-
-## Estado persistente da captura
-
-### `CaptureState`
-
-Campos atuais:
+`CaptureState` guarda:
 
 | Campo | Uso |
 |---|---|
-| `images` | Lista de arquivos capturados/selecionados. |
-| `qualityMessages` | Mensagens por quantidade de imagens. |
-| `uploading` | Indica envio em andamento. |
-| `uploadProgress` | Progresso `0..1`. |
-| `error` | Mensagem de falha. |
-| `count` | Atalho para `images.length`. |
-| `canReview` | `true` quando ha ao menos uma imagem. |
+| `cardinals` | Mapa das quatro vistas para o arquivo capturado; valor `null` indica slot vazio. |
+| `extras` | Ate duas imagens opcionais. |
+| `qualityMessages` | Orientacoes calculadas conforme a cobertura. |
+| `uploading` / `uploadProgress` | Estado e progresso do envio. |
+| `selectingFromGallery` | Evita abrir seletores concorrentes. |
+| `error` | Falha amigavel para a UI. |
 
-### `CaptureController`
+`allCardinalsFilled` libera o envio. `flattenForUpload()` transforma o mapa e as extras em duas listas paralelas, preservando a ordem das vistas.
 
-Responsabilidades:
+## Controller
 
-- recomputar mensagens com `ImageQualityAnalyzer`;
-- adicionar arquivo capturado via `addCapturedFile(File)`;
-- abrir camera nativa via `captureFromCamera()` como fallback;
-- escolher multiplas imagens da galeria via `pickFromGallery()`;
-- remover imagem por indice;
-- limpar estado;
-- enviar imagens e retornar `jobId`.
+`CaptureController`:
 
-`submit()` nao navega. Ele retorna `String?` para a pagina decidir o proximo passo.
+- captura ou seleciona uma imagem para cada vista;
+- permite refazer e remover slots;
+- adiciona/remove ate duas extras;
+- exige as quatro cardeais antes de enviar;
+- chama `CaptureRepository.uploadImages(files, views: views)`;
+- retorna o `jobId` para a tela iniciar o polling.
 
-## Estado ao vivo da camera
+## Paginas e rotas
 
-### `LiveCaptureState`
+`CaptureIntroPage` apresenta as orientacoes. `CaptureViewsPage` mostra o grid 2x2 das vistas, a secao de extras, progresso, erros e o botao de envio.
 
-Campos principais:
+| Rota | Tela atual | Observacao |
+|---|---|---|
+| `/capture/intro` | `CaptureIntroPage` | Entrada explicativa. |
+| `/capture/camera` | `CaptureViewsPage` | Nome mantido por compatibilidade. |
+| `/capture/review` | `CaptureViewsPage` | Redireciona ao grid se nenhuma cardeal foi preenchida. |
+| `/captura/:produtoId` | `CaptureViewsPage` | O parametro ainda nao e repassado ao `POST /captures`. |
 
-- `messages`: banners de feedback;
-- `brightness`;
-- `sharpness`;
-- `capturesCount`;
-- `verdict`: resultado do ORB;
-- `matchCount`;
-- `readyToCapture`.
-
-### `LiveCaptureController`
-
-Combina:
-
-- `FrameAnalyzer` a cada 200 ms;
-- `OrbSimilarityTracker` a cada 500 ms;
-- `TiltTracker` alimentado por `accelerometerEventStream()`.
-
-Thresholds atuais:
-
-| Valor | Significado |
-|---|---|
-| `_darkThreshold = 60` | abaixo disso, ambiente escuro. |
-| `_brightThreshold = 210` | acima disso, luz forte. |
-| `_blurryThreshold = 25` | nitidez minima. |
-| `_reflectiveRatio = 0.15` | saturacao/reflexo alto. |
-| `_tiltTolerance = 20` | tolerancia em graus. |
-| `_blurStreakThreshold = 3` | histerese contra alerta piscando. |
-
-`readyToCapture` e calculado, mas a UI atual ainda habilita o botao de captura quando a camera esta inicializada. As mensagens continuam orientando o usuario; se o produto exigir bloqueio mais rigido, a condicao ja existe no estado.
-
-## Paginas
-
-### `CaptureIntroPage`
-
-Mostra instrucoes antes da camera:
-
-- boa iluminacao;
-- varios angulos;
-- centralizacao;
-- fundo limpo;
-- quantidade minima.
-
-Botao: `Comecar captura` -> `captureCameraName`.
-
-### `CaptureCameraPage`
-
-E um `ConsumerStatefulWidget` porque gerencia `CameraController`, ciclo de vida do app e stream nativo.
-
-Fluxo tecnico:
-
-1. busca cameras com `availableCameras()`;
-2. escolhe camera traseira;
-3. cria `CameraController` com `ResolutionPreset.high`, `enableAudio: false`, `ImageFormatGroup.yuv420`;
-4. inicia `startImageStream`;
-5. envia cada frame para `liveCaptureControllerProvider.notifier.processFrame(frame)`;
-6. ao fotografar, para o stream, chama `takePicture()`, adiciona o arquivo no `CaptureController`, registra descritores ORB e reinicia o stream.
-
-UI:
-
-- `ImageCounter`;
-- preview com `CameraPreview`;
-- `CaptureOverlay`;
-- ate duas mensagens de `QualityBanner`;
-- botoes `Galeria`, `Capturar` e `Avancar para revisao`.
-
-### `CaptureReviewPage`
-
-Mostra:
-
-- contador;
-- primeiro banner de qualidade;
-- grid 3 colunas com remocao;
-- `LinearProgressIndicator` durante upload;
-- botoes `Capturar mais` e `Enviar para processamento`.
-
-Ao enviar:
-
-1. chama `controller.submit()`;
-2. se vier `jobId`, chama `processingControllerProvider.notifier.start(jobId)`;
-3. navega para `AppRoutes.processingName`.
-
-## Rotas relacionadas
-
-| Rota | Uso |
-|---|---|
-| `/capture/intro` | fluxo antigo explicativo. |
-| `/capture/camera` | camera direta. |
-| `/capture/review` | revisao com guard de imagens. |
-| `/captura/:produtoId` | entrada comercial para captura, ainda sem usar `produtoId`. |
+Depois do upload, a tela inicia `ProcessingController.start(jobId)` e navega para `/processing`.
 
 ## Proxima leitura
 
-- Algoritmos: [07 - Camada `core`](07-camada-core.md).
-- Processamento: [10 - Feature `processing`](10-feature-processing.md).
+- Constantes e auxiliares: [07 - Camada `core`](07-camada-core.md).
+- Polling: [10 - Feature `processing`](10-feature-processing.md).
 - Contrato HTTP: [16 - Contrato do backend](16-contrato-backend.md).

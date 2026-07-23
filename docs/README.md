@@ -1,6 +1,6 @@
 # Documentacao tecnica - `perfume_3d_mvp`
 
-Esta pasta descreve o estado atual do front-end Flutter em `C:\TCC\front`.
+Esta pasta descreve o estado atual do front-end Flutter em `C:\TCC\perfume-3d-frontend`.
 
 O projeto evoluiu: ele nao e mais apenas uma jornada linear de captura 3D. A tela inicial atual e um painel comercial para venda de perfumes, com clientes, cobrancas, produtos, notificacoes, wizard de venda e visualizacao 3D de produtos. O fluxo antigo de captura, upload, processamento e viewer 3D continua no codigo como modulo especializado.
 
@@ -39,9 +39,9 @@ O projeto evoluiu: ele nao e mais apenas uma jornada linear de captura 3D. A tel
 
 ## Convencoes
 
-- Caminhos sao relativos a raiz `front/`.
+- Caminhos sao relativos a raiz do repositorio `perfume-3d-frontend/`.
 - O codigo Dart e a fonte canonica; quando houver divergencia, atualize os docs.
-- A feature `sales` usa dados mockados em memoria. A integracao HTTP real ainda pertence apenas ao pipeline de captura/processamento.
+- A feature `sales` inicia com dados de demonstracao, restaura o snapshot local quando disponivel e tenta sincronizar com `/sales/*`; se o backend falhar, continua com o estado local/mockado.
 - A documentacao evita prometer comportamento que ainda nao existe: cadastro real, persistencia, autenticacao e sincronizacao remota estao fora do estado atual.
 
 ## Como manter

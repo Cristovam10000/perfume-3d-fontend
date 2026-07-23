@@ -3,16 +3,19 @@
 O backend cobre dois domínios:
 
 1. **Captura/processamento 3D** (`/captures/*`, `/files/*`) - sempre via HTTP.
-2. **Operação comercial** (`/sales/*`) - usado pelo `HttpSalesRepository` quando online; cai para `MockSalesRepository` em modo offline ou quando o backend nao responde.
+2. **Operação comercial** (`/sales/*`) - usado diretamente pelo `SalesController`; quando o backend nao responde, o estado local/mockado continua disponivel.
 
-O front Flutter consome ambos atraves do mesmo `Dio` centralizado em [AppConstants](../lib/core/constants/app_constants.dart).
+Os dois dominios usam a mesma URL de [AppConstants](../lib/core/constants/app_constants.dart). Captura/processamento usa o `dioClientProvider`; vendas cria um cliente Dio proprio com timeouts curtos e fallback local.
 
 ## Base URL
 
 Fonte: [AppConstants.backendBaseUrl](../lib/core/constants/app_constants.dart).
 
 ```dart
-static const String backendBaseUrl = 'http://192.168.0.3:8000';
+static const String backendBaseUrl = String.fromEnvironment(
+  'BACKEND_BASE_URL',
+  defaultValue: 'http://localhost:8000',
+);
 ```
 
 Troque conforme ambiente:
@@ -32,17 +35,24 @@ Multipart form-data:
 | Campo | Tipo | Descricao |
 |---|---|---|
 | `images` | arquivo repetido | Fotos capturadas/selecionadas. |
+| `views` | string repetida, opcional | Rotulos paralelos: `front`, `left`, `back`, `right` ou `extra`. |
 
 O front monta:
 
 ```dart
-FormData.fromMap({
+final formMap = <String, dynamic>{
   'images': [
     for (final f in images)
       await MultipartFile.fromFile(f.path, filename: f.uri.pathSegments.last),
   ],
-})
+};
+if (views != null && views.isNotEmpty) {
+  formMap['views'] = views;
+}
+final formData = FormData.fromMap(formMap);
 ```
+
+Quando `views` e enviado, precisa ter o mesmo tamanho de `images`. Sem rotulos, o backend tenta classificar as vistas automaticamente.
 
 ### Response esperada
 
@@ -106,7 +116,7 @@ Qualquer outro valor vira `idle`.
 {
   "status": "completed",
   "message": "Modelo pronto.",
-  "modelUrl": "http://192.168.0.3:8000/files/models/job-abc123.glb",
+  "modelUrl": "http://localhost:8000/files/models/job-abc123.glb",
   "error": null
 }
 ```
@@ -127,11 +137,11 @@ Nao ha autenticacao no front atual. Todas as chamadas presumem backend local ano
 
 ## Backend comercial - `/sales/*`
 
-Usado por [sales_repository.dart](../lib/features/sales/data/sales_repository.dart) - especificamente pela classe `HttpSalesRepository` (com fallback para `MockSalesRepository` quando offline). Todos os payloads usam camelCase ja convertido pelo Pydantic do backend.
+Usado pelo `SalesController` em [sales_repository.dart](../lib/features/sales/data/sales_repository.dart), com fallback para o snapshot local/mockado quando offline. Todos os payloads usam camelCase convertido pelo Pydantic do backend.
 
 ### `GET /sales/snapshot`
 
-Devolve o estado completo (clientes, produtos, vendas, parcelas, pagamentos, notificacoes) num unico payload. O `HttpSalesRepository` chama isso no boot do app e usa para hidratar o estado em memoria. Resposta:
+Devolve o estado completo (clientes, produtos, vendas, parcelas, pagamentos, notificacoes) num unico payload. O `SalesController` chama isso no boot do app e usa a resposta para hidratar e persistir o estado disponivel. Resposta:
 
 ```json
 {
@@ -221,4 +231,4 @@ Detalhes em [18 - Feature `sales`](18-feature-sales.md).
 - Upload no front: [09 - Feature `product_capture`](09-feature-product-capture.md).
 - Polling: [10 - Feature `processing`](10-feature-processing.md).
 - Modulo comercial: [18 - Feature `sales`](18-feature-sales.md).
-- Contrato no backend: [`13 - Endpoints HTTP`](../../back/docs/13-endpoints-http.md), [`12 - Armazenamento e banco`](../../back/docs/12-armazenamento-e-banco.md).
+- Contrato no backend: [`13 - Endpoints HTTP`](../../perfume-3d-backend/docs/13-endpoints-http.md), [`12 - Armazenamento e banco`](../../perfume-3d-backend/docs/12-armazenamento-e-banco.md).

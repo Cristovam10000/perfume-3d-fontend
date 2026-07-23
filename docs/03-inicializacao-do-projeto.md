@@ -12,7 +12,7 @@
 Na raiz do front:
 
 ```powershell
-cd C:\TCC\front
+cd C:\TCC\perfume-3d-frontend
 flutter pub get
 ```
 
@@ -34,10 +34,13 @@ Isso garante que `AppFormatters` consiga formatar datas e moeda em pt-BR antes d
 
 ## Configurar backend
 
-O endereco atual esta em [app_constants.dart](../lib/core/constants/app_constants.dart):
+O endereco e configurado em [app_constants.dart](../lib/core/constants/app_constants.dart):
 
 ```dart
-static const String backendBaseUrl = 'http://192.168.0.3:8000';
+static const String backendBaseUrl = String.fromEnvironment(
+  'BACKEND_BASE_URL',
+  defaultValue: 'http://localhost:8000',
+);
 ```
 
 Use:
@@ -46,7 +49,13 @@ Use:
 - o IP da maquina na rede local para aparelho fisico;
 - `localhost` somente quando o app e o backend rodam no mesmo ambiente que resolve esse host.
 
-O modulo `sales` roda com dados mockados e nao depende desse backend. O backend e necessario para:
+Informe a URL sem alterar o codigo-fonte:
+
+```powershell
+flutter run --dart-define=BACKEND_BASE_URL=http://localhost:8000
+```
+
+O modulo `sales` tenta carregar e sincronizar `/sales/*`, mas continua com o snapshot local/mockado quando o backend esta indisponivel. O backend e obrigatorio para:
 
 - `POST /captures`;
 - `GET /captures/{jobId}/status`;

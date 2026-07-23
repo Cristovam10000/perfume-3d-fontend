@@ -9,16 +9,17 @@ Sales pages
 salesSnapshotProvider
    |
    v
-salesRepositoryProvider
+salesControllerProvider
    |
-   v
-MockSalesRepository.loadSnapshot()
+   +-- MockSalesRepository (estado inicial)
+   +-- SalesLocalStorage (restore/persist)
+   +-- GET /sales/snapshot (best-effort)
    |
    v
 SalesSnapshot
 ```
 
-`SalesSnapshot` contem listas mockadas e getters calculados:
+`SalesSnapshot` contem as listas comerciais e getters calculados:
 
 - `parcelasResumo`;
 - `vencemHoje`;
@@ -48,13 +49,18 @@ Confirmar venda
 cria Venda(syncStatus: pending)
    |
    v
+SalesController.confirmSale(venda)
+   |-- persiste snapshot disponivel
+   |-- tenta POST /sales/sales
+   |
+   v
 context.goNamed(sale-detail, extra: venda)
    |
    v
 SaleDetailPage(draftVenda)
 ```
 
-A venda criada no wizard nao e persistida no `MockSalesRepository`. Ela e enviada em memoria por `GoRouter.extra`. Por isso, se a tela for recarregada sem `extra`, a venda draft desaparece.
+A venda confirmada pelo wizard atualiza o `SalesController`, reduz o estoque, persiste o snapshot disponivel e tenta `POST /sales/sales`. `GoRouter.extra` apenas permite abrir o detalhe imediatamente antes de uma eventual recarga remota.
 
 ## Fluxo 3 - Produto 3D do catalogo
 
@@ -76,7 +82,9 @@ ModelViewer(src: modelo3DPath)
 
 Esse fluxo nao usa `ViewerController`. Ele e especifico do modulo `sales`.
 
-## Fluxo 4 - Captura ao vivo
+## Fluxo 4 - Captura ao vivo legada
+
+Este fluxo permanece no codigo, mas as rotas atuais usam `CaptureViewsPage` com `image_picker`:
 
 ```text
 CameraController.startImageStream()
@@ -111,13 +119,13 @@ startImageStream()
 ## Fluxo 5 - Upload e processamento
 
 ```text
-CaptureReviewPage
+CaptureViewsPage
    |
    v
 CaptureController.submit()
    |
    v
-CaptureRepository.uploadImages(files)
+CaptureRepository.uploadImages(files, views: views)
    |
    v
 POST /captures
@@ -177,8 +185,7 @@ O botao `Concluir` reseta `processingControllerProvider` e `viewerControllerProv
 | `ProductsPage` | `salesSnapshotProvider` |
 | `Product3DPage` | `salesSnapshotProvider` |
 | `NotificationsPage` | `salesSnapshotProvider` |
-| `CaptureCameraPage` | `captureControllerProvider`, `liveCaptureControllerProvider` |
-| `CaptureReviewPage` | `captureControllerProvider`, `processingControllerProvider` |
+| `CaptureViewsPage` | `captureControllerProvider`, `processingControllerProvider` |
 | `ProcessingStatusPage` | `processingControllerProvider`, `viewerControllerProvider` |
 | `Product3DViewerPage` | `viewerControllerProvider`, `processingControllerProvider` |
 
@@ -186,8 +193,8 @@ O botao `Concluir` reseta `processingControllerProvider` e `viewerControllerProv
 
 - `/captura/:produtoId` nao associa as imagens ao produto.
 - `/processando/:jobId` nao inicia polling a partir do parametro.
-- Vendas novas nao sao persistidas no repositorio mockado.
-- `SyncStatus` e apenas visual; nao ha fila local real.
+- O fallback persiste em `localStorage` somente no Web; nas demais plataformas usa memoria do processo.
+- A sincronizacao remota e *best-effort* e nao possui fila duravel de retry ou resolucao de conflitos.
 
 ## Proxima leitura
 

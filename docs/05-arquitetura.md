@@ -6,7 +6,7 @@ O projeto segue uma organizacao **feature-first**. Cada feature concentra modelo
 
 Ha dois estilos convivendo:
 
-- `sales`: modulo comercial com repositorio mockado, modelos ricos e muito estado local de UI.
+- `sales`: modulo comercial com `SalesController`, snapshot local/mockado e sincronizacao HTTP *best-effort*.
 - `product_capture` / `processing` / `product_viewer`: pipeline 3D com camadas mais classicas de domain, data e presentation.
 
 ## Camadas
@@ -18,13 +18,13 @@ Modelos puros de negocio:
 - `sales_models.dart`: `Cliente`, `Produto`, `Venda`, `Parcela`, `Pagamento`, `Notificacao`, `SalesSnapshot`.
 - `processing_job.dart`: status e metadados do job.
 - `product_model.dart`: URL e metadados opcionais do modelo 3D.
-- `captured_image.dart`: entidade simples para arquivo capturado, embora o estado atual da captura use `List<File>` diretamente.
+- `captured_image.dart`: entidade auxiliar; o estado ativo usa um mapa vista→`File?` e uma lista de extras.
 
 ### `data`
 
 Repositorios e acesso externo:
 
-- `SalesRepository`: hoje implementado por `MockSalesRepository`.
+- `SalesController`: restaura/persiste o snapshot disponivel e sincroniza `/sales/*`; `MockSalesRepository` fornece os dados iniciais.
 - `CaptureRepository`: `POST /captures`.
 - `ProcessingRepository`: `GET /captures/{jobId}/status`.
 - `ViewerRepository`: placeholder que retorna `ProductModel(modelUrl: url)`.
@@ -41,11 +41,11 @@ No modulo comercial, varias telas usam estado local (`StatefulWidget`) para filt
 |---|---|---|
 | `appRouterProvider` | `Provider<GoRouter>` | Rotas e guards. |
 | `dioClientProvider` | `Provider<Dio>` | Cliente HTTP configurado. |
-| `salesRepositoryProvider` | `Provider<SalesRepository>` | Fonte mockada de vendas. |
-| `salesSnapshotProvider` | `Provider<SalesSnapshot>` | Snapshot calculado para telas comerciais. |
+| `salesControllerProvider` | `StateNotifierProvider<SalesController, SalesSnapshot>` | Estado comercial, persistencia e sincronizacao. |
+| `salesSnapshotProvider` | `Provider<SalesSnapshot>` | Snapshot observado pelas telas comerciais. |
 | `captureRepositoryProvider` | `Provider<CaptureRepository>` | Upload das imagens. |
-| `captureControllerProvider` | `StateNotifierProvider` | Lista de imagens, upload e erros. |
-| `liveCaptureControllerProvider` | `StateNotifierProvider.autoDispose` | Analise de camera ao vivo, tilt e ORB. |
+| `captureControllerProvider` | `StateNotifierProvider` | Vistas cardeais, extras, upload e erros. |
+| `liveCaptureControllerProvider` | `StateNotifierProvider.autoDispose` | Implementacao legada de camera ao vivo, tilt e ORB. |
 | `processingRepositoryProvider` | `Provider<ProcessingRepository>` | Consulta status do job. |
 | `processingControllerProvider` | `StateNotifierProvider` | Timer de polling e estado do job. |
 | `viewerRepositoryProvider` | `Provider<ViewerRepository>` | Carregamento de metadados do modelo. |
@@ -60,7 +60,7 @@ Use quando o estado precisa atravessar telas ou representar uma dependencia comp
 - imagens capturadas;
 - status do processamento;
 - modelo carregado no viewer;
-- snapshot mockado de vendas;
+- snapshot comercial local/remoto;
 - clientes HTTP e repositorios.
 
 ### Local via `StatefulWidget`
@@ -94,7 +94,7 @@ As rotas comerciais ainda nao tem guards de existencia fortes. Quando um id nao 
 
 ## Fluxo comercial
 
-`salesSnapshotProvider` retorna um `SalesSnapshot` imutavel com listas mockadas e getters calculados:
+`salesSnapshotProvider` retorna um `SalesSnapshot` imutavel. O controller inicia com dados de demonstracao, restaura o snapshot local e tenta carregar `/sales/snapshot`:
 
 - `clientesById`, `produtosById`, `vendasById`;
 - `parcelasResumo`;
@@ -102,13 +102,13 @@ As rotas comerciais ainda nao tem guards de existencia fortes. Quando um id nao 
 - `topPagadores`;
 - totais financeiros.
 
-O wizard cria uma `Venda` em memoria e envia via `GoRouter.extra` para `SaleDetailPage`. Isso simula uma venda nova sem persistir no repositorio.
+O wizard confirma a `Venda` no `SalesController`, atualiza estoque, persiste o snapshot disponivel e tenta sincronizar com `/sales/sales`. `GoRouter.extra` transporta a venda apenas para abrir o detalhe imediatamente.
 
 ## Fluxo 3D
 
-1. `CaptureCameraPage` adiciona `File` em `CaptureController`.
-2. `CaptureReviewPage` chama `submit()`.
-3. `CaptureRepository` envia multipart para o backend e retorna `jobId`.
+1. `CaptureViewsPage` preenche as quatro vistas cardeais e ate duas extras no `CaptureController`.
+2. A mesma tela chama `submit()` quando todas as cardeais estao preenchidas.
+3. `CaptureRepository` envia `images` e `views` via multipart e retorna `jobId`.
 4. `ProcessingController.start(jobId)` inicia timer e polling.
 5. Ao concluir, a pagina de processamento chama `viewerController.load(modelUrl)`.
 6. `Product3DViewerPage` renderiza com `ModelViewer`.
