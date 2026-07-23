@@ -192,8 +192,11 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
   Future<void> _receive(Parcela installment) async {
     final value = await showPaymentForm(context, installment: installment);
     if (value == null || !mounted) return;
-    final requestId =
-        'payment-${installment.id}-${DateTime.now().microsecondsSinceEpoch}';
+    // Nao embutir installment.id: para parcelas locais ele e um id composto
+    // longo (local-installment-local-sale-...), o que estoura o limite de 80
+    // caracteres do requestId no backend. O timestamp em micros ja garante
+    // unicidade e estabilidade entre reenvios.
+    final requestId = 'payment-${DateTime.now().microsecondsSinceEpoch}';
     await _run(
       () => ref.read(salesControllerProvider.notifier).receivePayment(
             installmentId: installment.id,

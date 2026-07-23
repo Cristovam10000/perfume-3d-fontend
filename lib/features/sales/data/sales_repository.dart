@@ -751,11 +751,14 @@ class SalesController extends StateNotifier<SalesSnapshot> {
 
   Future<void> _executeOperation(_PendingSalesOperation operation) async {
     final payload = operation.payload;
+    // Operacoes enfileiradas offline podem ter ids compostos longos; o backend
+    // limita o requestId a 80 chars. Limita aqui para destravar a fila.
+    final requestId = _capRequestId(operation.id);
     switch (operation.type) {
       case 'createClient':
         final local = _clienteFromJson(payload['client']);
         final response = await _dio.post('/sales/clients', data: {
-          'requestId': operation.id,
+          'requestId': requestId,
           'nome': local.nome,
           'telefone': local.telefone,
           'bairro': local.bairro,
@@ -767,7 +770,7 @@ class SalesController extends StateNotifier<SalesSnapshot> {
         final local = _clienteFromJson(payload['client']);
         final response =
             await _dio.patch('/sales/clients/${_resolveId(local.id)}', data: {
-          'requestId': operation.id,
+          'requestId': requestId,
           'nome': local.nome,
           'telefone': local.telefone,
           'bairro': local.bairro,
@@ -777,7 +780,7 @@ class SalesController extends StateNotifier<SalesSnapshot> {
       case 'createProduct':
         final local = _produtoFromJson(payload['product']);
         final response = await _dio.post('/sales/products', data: {
-          'requestId': operation.id,
+          'requestId': requestId,
           ..._productWriteJson(local, includeStock: true),
         });
         _remapProduct(
@@ -804,7 +807,7 @@ class SalesController extends StateNotifier<SalesSnapshot> {
         final local = _resolvedSale(_vendaFromJson(payload['sale']));
         final response = await _dio.post('/sales/sales', data: {
           ..._vendaToJson(local),
-          'requestId': operation.id,
+          'requestId': requestId,
         });
         final remoteId = _responseMap(response.data)['id'].toString();
         _remapSale(local.id, remoteId);
@@ -816,7 +819,7 @@ class SalesController extends StateNotifier<SalesSnapshot> {
         final response = await _dio.post(
           '/sales/installments/$installmentId/payments',
           data: {
-            'requestId': operation.id,
+            'requestId': requestId,
             'valor': payment.valor,
             'data': _apiDate(payment.data),
             'forma': payment.forma,
@@ -843,7 +846,7 @@ class SalesController extends StateNotifier<SalesSnapshot> {
         final response = await _dio.patch(
           '/sales/installments/$installmentId/due-date',
           data: {
-            'requestId': operation.id,
+            'requestId': requestId,
             'dueDate': _apiDate(installment.vencimento),
             'observacoes': payload['notes'],
           },
@@ -978,6 +981,12 @@ class SalesController extends StateNotifier<SalesSnapshot> {
     final random = Random.secure().nextInt(1 << 32).toRadixString(16);
     return '$prefix-${DateTime.now().microsecondsSinceEpoch}-$random';
   }
+
+  /// Garante que o requestId nunca ultrapasse o limite de 80 caracteres do
+  /// backend. Preserva o final (onde fica o timestamp em micros que garante
+  /// unicidade), de forma deterministica e estavel entre reenvios.
+  static String _capRequestId(String id) =>
+      id.length <= 80 ? id : id.substring(id.length - 80);
 
   @override
   void dispose() {
