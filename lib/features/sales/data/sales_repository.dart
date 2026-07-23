@@ -1,17 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_constants.dart';
+import '../../../core/errors/app_exception.dart';
 import '../domain/sales_models.dart';
-import 'sales_local_storage.dart';
-
-const _storageKey = 'perfume_3d_sales_snapshot_v2';
+import 'sales_offline_store.dart';
 
 final salesControllerProvider =
     StateNotifierProvider<SalesController, SalesSnapshot>((ref) {
-  return SalesController(SalesLocalStorage());
+  return SalesController();
 });
 
 final salesSnapshotProvider = Provider<SalesSnapshot>((ref) {
@@ -19,563 +20,988 @@ final salesSnapshotProvider = Provider<SalesSnapshot>((ref) {
 });
 
 class SalesController extends StateNotifier<SalesSnapshot> {
-  final SalesLocalStorage _storage;
   final Dio _dio;
+  final SalesOfflineStore _store;
+  final Duration retryInterval;
+  final Completer<void> _ready = Completer<void>();
+  final List<_PendingSalesOperation> _outbox = [];
+  final Map<String, String> _idMap = {};
+  Timer? _retryTimer;
+  bool _syncing = false;
 
-  SalesController(this._storage)
-      : _dio = Dio(
-          BaseOptions(
-            baseUrl: AppConstants.backendBaseUrl,
-            connectTimeout: const Duration(milliseconds: 900),
-            receiveTimeout: const Duration(seconds: 3),
-            sendTimeout: const Duration(seconds: 3),
-            responseType: ResponseType.json,
-          ),
-        ),
-        super(MockSalesRepository().loadSnapshot()) {
-    _restore();
-    _loadRemote();
-  }
-
-  String nextProductId() {
-    final next = state.produtos.map((produto) {
-          final raw = RegExp(r'\d+').firstMatch(produto.id)?.group(0);
-          return int.tryParse(raw ?? '') ?? 0;
-        }).fold<int>(0, (max, id) => id > max ? id : max) +
-        1;
-    return 'p$next';
-  }
-
-  void addProduct(Produto produto) {
-    state = state.copyWith(produtos: [...state.produtos, produto]);
-    _persist();
-    _createRemoteProduct(produto);
-  }
-
-  void restockProduct(String produtoId, int amount) {
-    if (amount <= 0) return;
-    _replaceProduct(
-      produtoId,
-      (produto) => produto.copyWith(estoque: produto.estoque + amount),
-    );
-    _syncRemoteStock(produtoId, mode: 'add', quantity: amount);
-  }
-
-  void adjustProductStock(String produtoId, int quantity) {
-    _replaceProduct(
-      produtoId,
-      (produto) => produto.copyWith(estoque: quantity.clamp(0, 999999).toInt()),
-    );
-    _syncRemoteStock(produtoId, mode: 'set', quantity: quantity);
-  }
-
-  void confirmSale(Venda venda) {
-    final soldByProduct = <String, int>{};
-    for (final item in venda.itens) {
-      soldByProduct.update(
-        item.produtoId,
-        (quantity) => quantity + item.quantidade,
-        ifAbsent: () => item.quantidade,
-      );
-    }
-
-    final produtos = state.produtos.map((produto) {
-      final sold = soldByProduct[produto.id] ?? 0;
-      if (sold == 0) return produto;
-      return produto.copyWith(
-        estoque: (produto.estoque - sold).clamp(0, 999999).toInt(),
-      );
-    }).toList();
-
-    state = state.copyWith(
-      produtos: produtos,
-      vendas: [...state.vendas, venda],
-    );
-    _persist();
-    _createRemoteSale(venda);
-  }
-
-  void _replaceProduct(String produtoId, Produto Function(Produto) update) {
-    final produtos = state.produtos
-        .map((produto) => produto.id == produtoId ? update(produto) : produto)
-        .toList();
-    state = state.copyWith(produtos: produtos);
-    _persist();
-  }
-
-  void _restore() {
-    final raw = _storage.read(_storageKey);
-    if (raw == null || raw.isEmpty) return;
-    try {
-      state = _snapshotFromJson(raw).copyWith(hoje: _dateOnly(DateTime.now()));
-    } catch (_) {
-      // Mantem o snapshot padrao se o localStorage estiver em formato antigo.
+  SalesController({
+    Dio? dio,
+    SalesOfflineStore? store,
+    bool autoLoad = true,
+    this.retryInterval = const Duration(seconds: 10),
+  })  : _dio = dio ??
+            Dio(
+              BaseOptions(
+                baseUrl: AppConstants.backendBaseUrl,
+                connectTimeout: const Duration(seconds: 4),
+                receiveTimeout: const Duration(seconds: 12),
+                sendTimeout: const Duration(seconds: 12),
+                responseType: ResponseType.json,
+              ),
+            ),
+        _store = store ?? SharedPreferencesSalesOfflineStore(),
+        super(SalesSnapshot.empty()) {
+    if (autoLoad) {
+      unawaited(_initialize());
+    } else {
+      _ready.complete();
     }
   }
 
-  void _persist() {
-    _storage.write(_storageKey, _snapshotToJson(state));
-  }
+  Future<void> get ready => _ready.future;
+  int get pendingOperations => _outbox.length;
 
-  Future<void> _loadRemote() async {
+  Future<void> _initialize() async {
     try {
-      final response = await _dio.get('/sales/snapshot');
-      final data = response.data;
-      if (data is Map) {
-        state = _snapshotFromMap(Map<String, dynamic>.from(data)).copyWith(
-          hoje: _dateOnly(DateTime.now()),
-        );
-        _persist();
+      final raw = await _store.read();
+      if (raw != null && raw.isNotEmpty) {
+        final envelope = jsonDecode(raw) as Map<String, dynamic>;
+        final snapshot = envelope['snapshot'];
+        if (snapshot is Map) {
+          state = _snapshotFromMap(Map<String, dynamic>.from(snapshot));
+        }
+        _outbox
+          ..clear()
+          ..addAll(
+            _list(envelope['outbox']).map(_PendingSalesOperation.fromJson),
+          );
+        final mappings = envelope['idMap'];
+        if (mappings is Map) {
+          _idMap.addAll(
+            mappings.map((key, value) => MapEntry('$key', '$value')),
+          );
+        }
       }
     } catch (_) {
-      // Backend comercial indisponivel: segue com localStorage/mock.
+      // Mantem o estado vazio se o arquivo local estiver corrompido.
+    } finally {
+      if (!_ready.isCompleted) _ready.complete();
     }
+    await synchronize(silent: true);
+    _retryTimer = Timer.periodic(
+      retryInterval,
+      (_) => unawaited(synchronize(silent: true)),
+    );
   }
 
-  Future<void> _createRemoteProduct(Produto produto) async {
+  Future<void> refresh({bool silent = false}) async {
+    await _ready.future;
+    await synchronize(silent: silent);
+  }
+
+  Future<void> synchronize({bool silent = true}) async {
+    await _ready.future;
+    while (_syncing) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    _syncing = true;
     try {
-      await _dio.post('/sales/products', data: _produtoToJson(produto));
-      await _loadRemote();
-    } catch (_) {
-      // Fallback local ja foi atualizado.
+      await _syncOutbox();
+      if (_outbox.isNotEmpty) return;
+      final response = await _dio.get('/sales/snapshot');
+      final data = response.data;
+      if (data is! Map) {
+        throw const AppException('Resposta comercial invalida.');
+      }
+      state = _snapshotFromMap(Map<String, dynamic>.from(data)).copyWith(
+        hoje: _dateOnly(DateTime.now()),
+      );
+      await _persist();
+    } catch (error) {
+      if (!silent) throw _asAppException(error);
+    } finally {
+      _syncing = false;
     }
   }
 
-  Future<void> _syncRemoteStock(
-    String produtoId, {
+  Future<Cliente> createClient({
+    required String nome,
+    required String telefone,
+    required String bairro,
+  }) async {
+    await _ready.future;
+    final operationId = _newId('client');
+    final local = Cliente(
+      id: 'local-$operationId',
+      nome: nome,
+      telefone: telefone,
+      bairro: bairro,
+      score: 0,
+      status: ClienteStatus.warn,
+      emAberto: 0,
+      totalCompras: 0,
+      parcelasAtraso: 0,
+      totalComprado: 0,
+      syncStatus: SyncStatus.pending,
+    );
+    try {
+      final response = await _dio.post(
+        '/sales/clients',
+        data: {
+          'requestId': operationId,
+          'nome': nome,
+          'telefone': telefone,
+          'bairro': bairro,
+        },
+      );
+      final client = _clienteFromJson(_responseMap(response.data));
+      _upsertClient(client);
+      _idMap[local.id] = client.id;
+      await _persist();
+      unawaited(refresh(silent: true));
+      return client;
+    } catch (error) {
+      if (_isTemporaryConnectionError(error)) {
+        _upsertClient(local);
+        await _enqueue(
+          _PendingSalesOperation(
+            id: operationId,
+            type: 'createClient',
+            payload: {'client': _clienteToJson(local)},
+          ),
+        );
+        return local;
+      }
+      throw _asAppException(error);
+    }
+  }
+
+  Future<Cliente> updateClient(Cliente client) async {
+    await _ready.future;
+    final operationId = _newId('client-update');
+    if (_isLocalId(client.id)) {
+      final pending = client.copyWith(syncStatus: SyncStatus.pending);
+      _upsertClient(pending);
+      await _enqueue(
+        _PendingSalesOperation(
+          id: operationId,
+          type: 'updateClient',
+          payload: {'client': _clienteToJson(pending)},
+        ),
+      );
+      return pending;
+    }
+    try {
+      final response = await _dio.patch(
+        '/sales/clients/${client.id}',
+        data: {
+          'requestId': operationId,
+          'nome': client.nome,
+          'telefone': client.telefone,
+          'bairro': client.bairro,
+        },
+      );
+      final updated = _clienteFromJson(_responseMap(response.data));
+      _upsertClient(updated);
+      await _persist();
+      unawaited(refresh(silent: true));
+      return updated;
+    } catch (error) {
+      if (_isTemporaryConnectionError(error)) {
+        final pending = client.copyWith(syncStatus: SyncStatus.pending);
+        _upsertClient(pending);
+        await _enqueue(
+          _PendingSalesOperation(
+            id: operationId,
+            type: 'updateClient',
+            payload: {'client': _clienteToJson(pending)},
+          ),
+        );
+        return pending;
+      }
+      throw _asAppException(error);
+    }
+  }
+
+  Future<Produto> createProduct(Produto product) async {
+    await _ready.future;
+    final operationId = _newId('product');
+    final local = product.copyWith(
+      id: 'local-$operationId',
+      tem3D: false,
+      syncStatus: SyncStatus.pending,
+    );
+    try {
+      final response = await _dio.post(
+        '/sales/products',
+        data: {
+          'requestId': operationId,
+          ..._productWriteJson(product, includeStock: true),
+        },
+      );
+      final created = _produtoFromJson(_responseMap(response.data));
+      _upsertProduct(created);
+      _idMap[local.id] = created.id;
+      await _persist();
+      unawaited(refresh(silent: true));
+      return created;
+    } catch (error) {
+      if (_isTemporaryConnectionError(error)) {
+        _upsertProduct(local);
+        await _enqueue(
+          _PendingSalesOperation(
+            id: operationId,
+            type: 'createProduct',
+            payload: {'product': _produtoToJson(local)},
+          ),
+        );
+        return local;
+      }
+      throw _asAppException(error);
+    }
+  }
+
+  Future<Produto> updateProduct(Produto product) async {
+    await _ready.future;
+    final operationId = _newId('product-update');
+    if (_isLocalId(product.id)) {
+      final pending = product.copyWith(syncStatus: SyncStatus.pending);
+      _upsertProduct(pending);
+      await _enqueue(
+        _PendingSalesOperation(
+          id: operationId,
+          type: 'updateProduct',
+          payload: {'product': _produtoToJson(pending)},
+        ),
+      );
+      return pending;
+    }
+    try {
+      final response = await _dio.patch(
+        '/sales/products/${product.id}',
+        data: _productWriteJson(product),
+      );
+      final updated = _produtoFromJson(_responseMap(response.data));
+      _upsertProduct(updated);
+      await _persist();
+      unawaited(refresh(silent: true));
+      return updated;
+    } catch (error) {
+      if (_isTemporaryConnectionError(error)) {
+        final pending = product.copyWith(syncStatus: SyncStatus.pending);
+        _upsertProduct(pending);
+        await _enqueue(
+          _PendingSalesOperation(
+            id: operationId,
+            type: 'updateProduct',
+            payload: {'product': _produtoToJson(pending)},
+          ),
+        );
+        return pending;
+      }
+      throw _asAppException(error);
+    }
+  }
+
+  Future<Produto> restockProduct(String produtoId, int amount) {
+    if (amount <= 0) {
+      throw const AppException('Informe uma quantidade maior que zero.');
+    }
+    return _updateRemoteStock(produtoId, mode: 'add', quantity: amount);
+  }
+
+  Future<Produto> adjustProductStock(String produtoId, int quantity) {
+    if (quantity < 0) {
+      throw const AppException('O estoque nao pode ser negativo.');
+    }
+    return _updateRemoteStock(produtoId, mode: 'set', quantity: quantity);
+  }
+
+  Future<Produto> _updateRemoteStock(
+    String productId, {
     required String mode,
     required int quantity,
   }) async {
-    if (!_isRemoteId(produtoId)) return;
+    await _ready.future;
+    final current = state.produtoById(productId);
+    if (current == null) {
+      throw const AppException('Produto nao encontrado.');
+    }
+    final desiredQuantity =
+        mode == 'add' ? current.estoque + quantity : quantity;
+    final operationId = _newId('stock');
+    if (_isLocalId(productId)) {
+      return _queueStock(
+        current,
+        desiredQuantity,
+        operationId,
+      );
+    }
     try {
-      await _dio.patch(
-        '/sales/products/$produtoId/stock',
+      final response = await _dio.patch(
+        '/sales/products/$productId/stock',
         data: {'mode': mode, 'quantity': quantity},
       );
-      await _loadRemote();
-    } catch (_) {
-      // Fallback local ja foi atualizado.
+      final updated = _produtoFromJson(_responseMap(response.data));
+      _upsertProduct(updated);
+      await _persist();
+      unawaited(refresh(silent: true));
+      return updated;
+    } catch (error) {
+      if (_isTemporaryConnectionError(error)) {
+        return _queueStock(current, desiredQuantity, operationId);
+      }
+      throw _asAppException(error);
     }
   }
 
-  Future<void> _createRemoteSale(Venda venda) async {
-    if (!_canSyncSale(venda)) return;
+  Future<Venda> confirmSale(Venda sale) async {
+    await _ready.future;
+    final operationId = _newId('sale');
+    final local = sale.copyWith(
+      id: 'local-$operationId',
+      syncStatus: SyncStatus.pending,
+    );
+    final hasLocalDependency = _isLocalId(sale.clienteId) ||
+        sale.itens.any((item) => _isLocalId(item.produtoId));
+    if (hasLocalDependency) {
+      return _queueSale(local, operationId);
+    }
     try {
-      await _dio.post('/sales/sales', data: _vendaToJson(venda));
-      await _loadRemote();
-    } catch (_) {
-      // Fallback local ja foi atualizado.
+      final response = await _dio.post(
+        '/sales/sales',
+        data: {
+          ..._vendaToJson(sale),
+          'requestId': operationId,
+        },
+      );
+      final id = _responseMap(response.data)['id'].toString();
+      final confirmed = sale.copyWith(id: id, syncStatus: SyncStatus.synced);
+      final soldByProduct = <String, int>{};
+      for (final item in sale.itens) {
+        soldByProduct.update(
+          item.produtoId,
+          (value) => value + item.quantidade,
+          ifAbsent: () => item.quantidade,
+        );
+      }
+      state = state.copyWith(
+        vendas: [...state.vendas.where((item) => item.id != id), confirmed],
+        produtos: state.produtos.map((product) {
+          final sold = soldByProduct[product.id] ?? 0;
+          return sold == 0
+              ? product
+              : product.copyWith(
+                  estoque: (product.estoque - sold).clamp(0, 999999).toInt(),
+                );
+        }).toList(),
+      );
+      _idMap[local.id] = confirmed.id;
+      await _persist();
+      unawaited(refresh(silent: true));
+      return confirmed;
+    } catch (error) {
+      if (_isTemporaryConnectionError(error)) {
+        return _queueSale(local, operationId);
+      }
+      throw _asAppException(error);
     }
   }
-}
 
-abstract class SalesRepository {
-  SalesSnapshot loadSnapshot();
-}
-
-class MockSalesRepository implements SalesRepository {
-  @override
-  SalesSnapshot loadSnapshot() {
-    final hoje = _dateOnly(DateTime.now());
-    final ontem = hoje.subtract(const Duration(days: 1));
-    final amanha = hoje.add(const Duration(days: 1));
-    final proximaSemana = hoje.add(const Duration(days: 8));
-
-    const clientes = [
-      Cliente(
-        id: 'c1',
-        nome: 'Dona Marta Oliveira',
-        telefone: '(11) 98876-2310',
-        bairro: 'Vila Madalena',
-        score: 92,
-        status: ClienteStatus.good,
-        emAberto: 0,
-        totalCompras: 12,
-        parcelasAtraso: 0,
-        totalComprado: 320,
-      ),
-      Cliente(
-        id: 'c2',
-        nome: 'Junior Alves',
-        telefone: '(11) 97731-0021',
-        bairro: 'Centro',
-        score: 74,
-        status: ClienteStatus.warn,
-        emAberto: 240,
-        totalCompras: 4,
-        parcelasAtraso: 1,
-        totalComprado: 1180,
-        syncStatus: SyncStatus.pending,
-      ),
-      Cliente(
-        id: 'c3',
-        nome: 'Tia Cleuza',
-        telefone: '(11) 96620-4421',
-        bairro: 'Pinheiros',
-        score: 86,
-        status: ClienteStatus.good,
-        emAberto: 150,
-        totalCompras: 8,
-        parcelasAtraso: 0,
-        totalComprado: 910,
-      ),
-      Cliente(
-        id: 'c4',
-        nome: 'Roberval Souza',
-        telefone: '(11) 95514-8011',
-        bairro: 'Tatuape',
-        score: 48,
-        status: ClienteStatus.bad,
-        emAberto: 580,
-        totalCompras: 3,
-        parcelasAtraso: 3,
-        totalComprado: 720,
-      ),
-      Cliente(
-        id: 'c5',
-        nome: 'Seu Nelson',
-        telefone: '(11) 94410-1200',
-        bairro: 'Mooca',
-        score: 82,
-        status: ClienteStatus.warn,
-        emAberto: 90,
-        totalCompras: 5,
-        parcelasAtraso: 0,
-        totalComprado: 640,
-      ),
-      Cliente(
-        id: 'c6',
-        nome: 'Ana Paula',
-        telefone: '(11) 93222-7099',
-        bairro: 'Santana',
-        score: 95,
-        status: ClienteStatus.good,
-        emAberto: 0,
-        totalCompras: 9,
-        parcelasAtraso: 0,
-        totalComprado: 1360,
-      ),
-    ];
-
-    const produtos = [
-      Produto(
-        id: 'p1',
-        nome: 'Lattafa Khamrah',
-        categoria: 'Arabe doce',
-        precoBase: 320,
-        custo: 180,
-        estoque: 8,
-        estoqueMinimo: 1,
-        volumeMl: 100,
-        frascoColorValue: 0xFFCB3E7B,
-        tem3D: true,
-        modelo3DPath: 'http://localhost:8000/files/models/demo-khamrah.glb',
-      ),
-      Produto(
-        id: 'p2',
-        nome: 'Armaf Club de Nuit',
-        categoria: 'Masculino',
-        precoBase: 360,
-        custo: 210,
-        estoque: 5,
-        estoqueMinimo: 1,
-        volumeMl: 105,
-        frascoColorValue: 0xFF4863A8,
-        tem3D: true,
-        modelo3DPath: 'http://localhost:8000/files/models/demo-club.glb',
-      ),
-      Produto(
-        id: 'p3',
-        nome: 'Maison Alhambra Layali',
-        categoria: 'Feminino',
-        precoBase: 280,
-        custo: 155,
-        estoque: 2,
-        estoqueMinimo: 1,
-        volumeMl: 100,
-        frascoColorValue: 0xFFB13B72,
-        tem3D: false,
-      ),
-      Produto(
-        id: 'p4',
-        nome: 'Al Haramain Amber Oud',
-        categoria: 'Unissex',
-        precoBase: 420,
-        custo: 230,
-        estoque: 12,
-        estoqueMinimo: 1,
-        volumeMl: 60,
-        frascoColorValue: 0xFF94683E,
-        tem3D: true,
-        modelo3DPath: 'http://localhost:8000/files/models/demo-amber.glb',
-      ),
-      Produto(
-        id: 'p5',
-        nome: 'Lattafa Yara',
-        categoria: 'Feminino',
-        precoBase: 240,
-        custo: 130,
-        estoque: 0,
-        estoqueMinimo: 1,
-        volumeMl: 100,
-        frascoColorValue: 0xFFC83D7B,
-        tem3D: true,
-        modelo3DPath: 'http://localhost:8000/files/models/demo-yara.glb',
-        syncStatus: SyncStatus.pending,
-      ),
-      Produto(
-        id: 'p6',
-        nome: 'Rasasi Hawas',
-        categoria: 'Masculino',
-        precoBase: 380,
-        custo: 220,
-        estoque: 6,
-        estoqueMinimo: 1,
-        volumeMl: 100,
-        frascoColorValue: 0xFF336D88,
-        tem3D: false,
-      ),
-    ];
-
-    final vendas = [
-      Venda(
-        id: '001',
-        clienteId: 'c1',
-        data: hoje.subtract(const Duration(days: 3)),
-        itens: const [
-          ItemVenda(produtoId: 'p1', quantidade: 1, precoUnitario: 320),
-          ItemVenda(produtoId: 'p3', quantidade: 1, precoUnitario: 240),
+  Future<void> receivePayment({
+    required String installmentId,
+    required double value,
+    required DateTime date,
+    required String method,
+    String? notes,
+    String? requestId,
+  }) async {
+    await _ready.future;
+    final operationId = requestId ?? _newId('payment');
+    final installment = _parcelaById(installmentId);
+    if (installment == null) {
+      throw const AppException('Parcela nao encontrada.');
+    }
+    if (_isLocalId(installmentId)) {
+      await _queuePayment(
+        installment,
+        operationId,
+        value,
+        date,
+        method,
+        notes,
+      );
+      return;
+    }
+    try {
+      final response = await _dio.post(
+        '/sales/installments/$installmentId/payments',
+        data: {
+          'requestId': operationId,
+          'valor': value,
+          'data': _apiDate(date),
+          'forma': method,
+          'observacoes': notes?.trim().isEmpty == true ? null : notes?.trim(),
+        },
+      );
+      final body = _responseMap(response.data);
+      final payment = _pagamentoFromJson(body['payment']);
+      final installment = _parcelaFromJson(body['installment']);
+      state = state.copyWith(
+        pagamentos: [
+          ...state.pagamentos.where((item) => item.id != payment.id),
+          payment,
         ],
-        total: 560,
-        entrada: 80,
-        numParcelas: 4,
-      ),
-      Venda(
-        id: '002',
-        clienteId: 'c3',
-        data: hoje.subtract(const Duration(days: 20)),
-        itens: const [
-          ItemVenda(produtoId: 'p2', quantidade: 1, precoUnitario: 360),
-        ],
-        total: 360,
-        entrada: 60,
-        numParcelas: 2,
-      ),
-      Venda(
-        id: '003',
-        clienteId: 'c4',
-        data: hoje.subtract(const Duration(days: 12)),
-        itens: const [
-          ItemVenda(produtoId: 'p4', quantidade: 2, precoUnitario: 280),
-        ],
-        total: 560,
-        entrada: 0,
-        numParcelas: 4,
-        syncStatus: SyncStatus.pending,
-      ),
-      Venda(
-        id: '004',
-        clienteId: 'c2',
-        data: hoje,
-        itens: const [
-          ItemVenda(produtoId: 'p1', quantidade: 1, precoUnitario: 320),
-        ],
-        total: 320,
-        entrada: 80,
-        numParcelas: 2,
-        syncStatus: SyncStatus.pending,
-      ),
-    ];
+        parcelas: state.parcelas
+            .map((item) => item.id == installment.id ? installment : item)
+            .toList(),
+      );
+      await _persist();
+      unawaited(refresh(silent: true));
+    } catch (error) {
+      if (_isTemporaryConnectionError(error)) {
+        await _queuePayment(
+          installment,
+          operationId,
+          value,
+          date,
+          method,
+          notes,
+        );
+        return;
+      }
+      throw _asAppException(error);
+    }
+  }
 
-    final parcelas = [
-      Parcela(
-        id: 'pa1',
-        vendaId: '001',
-        numero: 1,
-        total: 4,
-        valor: 120,
-        valorPago: 120,
-        vencimento: hoje.subtract(const Duration(days: 26)),
-        status: ParcelaStatus.paga,
-        eventos: [
-          EventoParcela(
-            tipo: EventoTipo.pagamento,
-            data: hoje.subtract(const Duration(days: 25)),
-            descricao: 'Pagamento recebido via Pix',
-            valor: 120,
+  Future<void> renegotiateInstallment({
+    required String installmentId,
+    required DateTime dueDate,
+    String? notes,
+  }) async {
+    await _ready.future;
+    final operationId = _newId('due-date');
+    final installment = _parcelaById(installmentId);
+    if (installment == null) {
+      throw const AppException('Parcela nao encontrada.');
+    }
+    if (_isLocalId(installmentId)) {
+      await _queueDueDate(
+        installment,
+        operationId,
+        dueDate,
+        notes,
+      );
+      return;
+    }
+    try {
+      final response = await _dio.patch(
+        '/sales/installments/$installmentId/due-date',
+        data: {
+          'requestId': operationId,
+          'dueDate': _apiDate(dueDate),
+          'observacoes': notes?.trim().isEmpty == true ? null : notes?.trim(),
+        },
+      );
+      final installment = _parcelaFromJson(_responseMap(response.data));
+      state = state.copyWith(
+        parcelas: state.parcelas
+            .map((item) => item.id == installment.id ? installment : item)
+            .toList(),
+      );
+      await _persist();
+      unawaited(refresh(silent: true));
+    } catch (error) {
+      if (_isTemporaryConnectionError(error)) {
+        await _queueDueDate(
+          installment,
+          operationId,
+          dueDate,
+          notes,
+        );
+        return;
+      }
+      throw _asAppException(error);
+    }
+  }
+
+  Future<void> markNotificationRead(
+    String notificationId, {
+    bool read = true,
+  }) async {
+    await _ready.future;
+    final operationId = _newId('notification');
+    Notificacao? current;
+    for (final notification in state.notificacoes) {
+      if (notification.id == notificationId) {
+        current = notification;
+        break;
+      }
+    }
+    if (current == null) {
+      throw const AppException('Notificacao nao encontrada.');
+    }
+    try {
+      final response = await _dio.patch(
+        '/sales/notifications/$notificationId/read',
+        data: {'lida': read},
+      );
+      final notification = _notificacaoFromJson(_responseMap(response.data));
+      state = state.copyWith(
+        notificacoes: state.notificacoes
+            .map((item) => item.id == notification.id ? notification : item)
+            .toList(),
+      );
+      await _persist();
+    } catch (error) {
+      if (_isTemporaryConnectionError(error)) {
+        final pending = current.copyWith(lida: read);
+        state = state.copyWith(
+          notificacoes: state.notificacoes
+              .map((item) => item.id == notificationId ? pending : item)
+              .toList(),
+        );
+        await _enqueue(
+          _PendingSalesOperation(
+            id: operationId,
+            type: 'notificationRead',
+            payload: {
+              'notificationId': notificationId,
+              'read': read,
+            },
           ),
-        ],
-      ),
-      Parcela(
-        id: 'pa2',
-        vendaId: '001',
-        numero: 2,
-        total: 4,
-        valor: 120,
-        valorPago: 120,
-        vencimento: hoje.subtract(const Duration(days: 4)),
-        status: ParcelaStatus.paga,
-      ),
-      Parcela(
-        id: 'pa3',
-        vendaId: '001',
-        numero: 3,
-        total: 4,
-        valor: 120,
-        valorPago: 40,
-        vencimento: ontem,
-        status: ParcelaStatus.parcial,
-      ),
-      Parcela(
-        id: 'pa4',
-        vendaId: '001',
-        numero: 4,
-        total: 4,
-        valor: 80,
-        vencimento: hoje,
-        status: ParcelaStatus.pendente,
-      ),
-      Parcela(
-        id: 'pa5',
-        vendaId: '002',
-        numero: 1,
-        total: 2,
-        valor: 150,
-        valorPago: 150,
-        vencimento: hoje.subtract(const Duration(days: 30)),
-        status: ParcelaStatus.paga,
-      ),
-      Parcela(
-        id: 'pa6',
-        vendaId: '002',
-        numero: 2,
-        total: 2,
-        valor: 150,
-        vencimento: hoje,
-        status: ParcelaStatus.pendente,
-      ),
-      Parcela(
-        id: 'pa7',
-        vendaId: '003',
-        numero: 1,
-        total: 4,
-        valor: 140,
-        vencimento: ontem.subtract(const Duration(days: 4)),
-        status: ParcelaStatus.atrasada,
-        syncStatus: SyncStatus.pending,
-      ),
-      Parcela(
-        id: 'pa8',
-        vendaId: '003',
-        numero: 2,
-        total: 4,
-        valor: 140,
-        vencimento: ontem,
-        status: ParcelaStatus.atrasada,
-      ),
-      Parcela(
-        id: 'pa9',
-        vendaId: '004',
-        numero: 1,
-        total: 2,
-        valor: 120,
-        vencimento: amanha,
-        status: ParcelaStatus.pendente,
-        syncStatus: SyncStatus.pending,
-      ),
-      Parcela(
-        id: 'pa10',
-        vendaId: '004',
-        numero: 2,
-        total: 2,
-        valor: 120,
-        vencimento: proximaSemana,
-        status: ParcelaStatus.pendente,
-        syncStatus: SyncStatus.pending,
-      ),
-    ];
+        );
+        return;
+      }
+      throw _asAppException(error);
+    }
+  }
 
-    final pagamentos = [
-      Pagamento(
-        id: 'pg1',
-        parcelaId: 'pa1',
-        data: hoje.subtract(const Duration(days: 25)),
-        valor: 120,
-        forma: 'Pix',
-      ),
-      Pagamento(
-        id: 'pg2',
-        parcelaId: 'pa2',
-        data: hoje.subtract(const Duration(days: 3)),
-        valor: 120,
-        forma: 'Dinheiro',
-      ),
-      Pagamento(
-        id: 'pg3',
-        parcelaId: 'pa3',
-        data: hoje,
-        valor: 40,
-        forma: 'Pix',
-        syncStatus: SyncStatus.pending,
-      ),
-    ];
+  Future<void> _enqueue(_PendingSalesOperation operation) async {
+    _outbox.add(operation);
+    await _persist();
+  }
 
-    final notificacoes = [
-      Notificacao(
-        id: 'n1',
-        clienteId: 'c1',
-        parcelaId: 'pa4',
-        tipo: NotificacaoTipo.venceHoje,
-        data: hoje.add(const Duration(hours: 8)),
-        texto: 'Cobrar Dona Marta hoje',
-        valor: 80,
+  Future<Produto> _queueStock(
+    Produto current,
+    int quantity,
+    String operationId,
+  ) async {
+    final pending = current.copyWith(
+      estoque: quantity.clamp(0, 999999).toInt(),
+      syncStatus: SyncStatus.pending,
+    );
+    _upsertProduct(pending);
+    await _enqueue(
+      _PendingSalesOperation(
+        id: operationId,
+        type: 'setStock',
+        payload: {
+          'productId': current.id,
+          'quantity': pending.estoque,
+        },
       ),
-      Notificacao(
-        id: 'n2',
-        clienteId: 'c2',
-        parcelaId: 'pa9',
-        tipo: NotificacaoTipo.venceAmanha,
-        data: amanha.add(const Duration(hours: 8)),
-        texto: 'Junior Alves vence amanha',
-        valor: 120,
-      ),
-      Notificacao(
-        id: 'n3',
-        clienteId: 'c4',
-        parcelaId: 'pa7',
-        tipo: NotificacaoTipo.atraso,
-        data: hoje.add(const Duration(hours: 7, minutes: 30)),
-        texto: 'Roberval Souza esta atrasado ha 4 dias',
-        valor: 140,
-      ),
-    ];
+    );
+    return pending;
+  }
 
-    return SalesSnapshot(
-      hoje: hoje,
-      clientes: clientes,
-      produtos: produtos,
-      vendas: vendas,
-      parcelas: parcelas,
-      pagamentos: pagamentos,
-      notificacoes: notificacoes,
+  Future<Venda> _queueSale(Venda sale, String operationId) async {
+    final sold = <String, int>{};
+    for (final item in sale.itens) {
+      sold.update(
+        item.produtoId,
+        (value) => value + item.quantidade,
+        ifAbsent: () => item.quantidade,
+      );
+    }
+    final products = state.produtos.map((product) {
+      final quantity = sold[product.id] ?? 0;
+      return quantity == 0
+          ? product
+          : product.copyWith(
+              estoque: (product.estoque - quantity).clamp(0, 999999).toInt(),
+              syncStatus: SyncStatus.pending,
+            );
+    }).toList();
+    final installments = _localInstallments(sale);
+    state = state.copyWith(
+      produtos: products,
+      vendas: [...state.vendas, sale],
+      parcelas: [...state.parcelas, ...installments],
+    );
+    await _enqueue(
+      _PendingSalesOperation(
+        id: operationId,
+        type: 'createSale',
+        payload: {
+          'sale': _vendaToJson(sale),
+          'installments': installments.map(_parcelaToJson).toList(),
+        },
+      ),
+    );
+    return sale;
+  }
+
+  Future<void> _queuePayment(
+    Parcela installment,
+    String operationId,
+    double value,
+    DateTime date,
+    String method,
+    String? notes,
+  ) async {
+    if (value <= 0 || value > installment.restante + 0.005) {
+      throw const AppException('Valor de pagamento invalido.');
+    }
+    final paid = installment.valorPago + value;
+    final status =
+        paid >= installment.valor ? ParcelaStatus.paga : ParcelaStatus.parcial;
+    final updated = installment.copyWith(
+      valorPago: paid,
+      status: status,
+      syncStatus: SyncStatus.pending,
+      eventos: [
+        ...installment.eventos,
+        EventoParcela(
+          tipo: status == ParcelaStatus.paga
+              ? EventoTipo.pagamento
+              : EventoTipo.parcial,
+          data: date,
+          descricao: 'Pagamento pendente via $method',
+          valor: value,
+        ),
+      ],
+    );
+    final payment = Pagamento(
+      id: 'local-$operationId',
+      parcelaId: installment.id,
+      data: date,
+      valor: value,
+      forma: method,
+      observacoes: notes,
+      syncStatus: SyncStatus.pending,
+    );
+    state = state.copyWith(
+      parcelas: state.parcelas
+          .map((item) => item.id == updated.id ? updated : item)
+          .toList(),
+      pagamentos: [...state.pagamentos, payment],
+    );
+    await _enqueue(
+      _PendingSalesOperation(
+        id: operationId,
+        type: 'payment',
+        payload: {
+          'payment': _pagamentoToJson(payment),
+          'installment': _parcelaToJson(updated),
+        },
+      ),
     );
   }
-}
 
-String _snapshotToJson(SalesSnapshot snapshot) {
-  return jsonEncode({
-    'hoje': snapshot.hoje.toIso8601String(),
-    'clientes': snapshot.clientes.map(_clienteToJson).toList(),
-    'produtos': snapshot.produtos.map(_produtoToJson).toList(),
-    'vendas': snapshot.vendas.map(_vendaToJson).toList(),
-    'parcelas': snapshot.parcelas.map(_parcelaToJson).toList(),
-    'pagamentos': snapshot.pagamentos.map(_pagamentoToJson).toList(),
-    'notificacoes': snapshot.notificacoes.map(_notificacaoToJson).toList(),
-  });
-}
+  Future<void> _queueDueDate(
+    Parcela installment,
+    String operationId,
+    DateTime dueDate,
+    String? notes,
+  ) async {
+    final updated = installment.copyWith(
+      vencimento: dueDate,
+      status: installment.valorPago > 0
+          ? ParcelaStatus.parcial
+          : ParcelaStatus.pendente,
+      syncStatus: SyncStatus.pending,
+      eventos: [
+        ...installment.eventos,
+        EventoParcela(
+          tipo: EventoTipo.remarca,
+          data: DateTime.now(),
+          descricao: notes ?? 'Vencimento alterado offline',
+        ),
+      ],
+    );
+    state = state.copyWith(
+      parcelas: state.parcelas
+          .map((item) => item.id == updated.id ? updated : item)
+          .toList(),
+    );
+    await _enqueue(
+      _PendingSalesOperation(
+        id: operationId,
+        type: 'dueDate',
+        payload: {
+          'installment': _parcelaToJson(updated),
+          'notes': notes,
+        },
+      ),
+    );
+  }
 
-SalesSnapshot _snapshotFromJson(String raw) {
-  return _snapshotFromMap(jsonDecode(raw) as Map<String, dynamic>);
+  Future<void> _syncOutbox() async {
+    while (_outbox.isNotEmpty) {
+      final operation = _outbox.first;
+      try {
+        await _executeOperation(operation);
+        _outbox.removeAt(0);
+        await _persist();
+      } catch (error) {
+        operation
+          ..attempts += 1
+          ..lastError = _asAppException(error).message;
+        await _persist();
+        break;
+      }
+    }
+  }
+
+  Future<void> _executeOperation(_PendingSalesOperation operation) async {
+    final payload = operation.payload;
+    switch (operation.type) {
+      case 'createClient':
+        final local = _clienteFromJson(payload['client']);
+        final response = await _dio.post('/sales/clients', data: {
+          'requestId': operation.id,
+          'nome': local.nome,
+          'telefone': local.telefone,
+          'bairro': local.bairro,
+        });
+        final remote = _clienteFromJson(_responseMap(response.data));
+        _remapClient(local.id, remote);
+        return;
+      case 'updateClient':
+        final local = _clienteFromJson(payload['client']);
+        final response =
+            await _dio.patch('/sales/clients/${_resolveId(local.id)}', data: {
+          'requestId': operation.id,
+          'nome': local.nome,
+          'telefone': local.telefone,
+          'bairro': local.bairro,
+        });
+        _upsertClient(_clienteFromJson(_responseMap(response.data)));
+        return;
+      case 'createProduct':
+        final local = _produtoFromJson(payload['product']);
+        final response = await _dio.post('/sales/products', data: {
+          'requestId': operation.id,
+          ..._productWriteJson(local, includeStock: true),
+        });
+        _remapProduct(
+          local.id,
+          _produtoFromJson(_responseMap(response.data)),
+        );
+        return;
+      case 'updateProduct':
+        final local = _produtoFromJson(payload['product']);
+        final response =
+            await _dio.patch('/sales/products/${_resolveId(local.id)}', data: {
+          ..._productWriteJson(local),
+        });
+        _upsertProduct(_produtoFromJson(_responseMap(response.data)));
+        return;
+      case 'setStock':
+        final response = await _dio.patch(
+          '/sales/products/${_resolveId('${payload['productId']}')}/stock',
+          data: {'mode': 'set', 'quantity': payload['quantity']},
+        );
+        _upsertProduct(_produtoFromJson(_responseMap(response.data)));
+        return;
+      case 'createSale':
+        final local = _resolvedSale(_vendaFromJson(payload['sale']));
+        final response = await _dio.post('/sales/sales', data: {
+          ..._vendaToJson(local),
+          'requestId': operation.id,
+        });
+        final remoteId = _responseMap(response.data)['id'].toString();
+        _remapSale(local.id, remoteId);
+        return;
+      case 'payment':
+        final payment = _pagamentoFromJson(payload['payment']);
+        final installment = _parcelaFromJson(payload['installment']);
+        final installmentId = await _resolveInstallmentId(installment);
+        final response = await _dio.post(
+          '/sales/installments/$installmentId/payments',
+          data: {
+            'requestId': operation.id,
+            'valor': payment.valor,
+            'data': _apiDate(payment.data),
+            'forma': payment.forma,
+            'observacoes': payment.observacoes,
+          },
+        );
+        final body = _responseMap(response.data);
+        final remotePayment = _pagamentoFromJson(body['payment']);
+        final remoteInstallment = _parcelaFromJson(body['installment']);
+        state = state.copyWith(
+          pagamentos: [
+            ...state.pagamentos.where((item) => item.id != payment.id),
+            remotePayment,
+          ],
+          parcelas: state.parcelas
+              .map((item) =>
+                  item.id == installment.id ? remoteInstallment : item)
+              .toList(),
+        );
+        return;
+      case 'dueDate':
+        final installment = _parcelaFromJson(payload['installment']);
+        final installmentId = await _resolveInstallmentId(installment);
+        final response = await _dio.patch(
+          '/sales/installments/$installmentId/due-date',
+          data: {
+            'requestId': operation.id,
+            'dueDate': _apiDate(installment.vencimento),
+            'observacoes': payload['notes'],
+          },
+        );
+        final remote = _parcelaFromJson(_responseMap(response.data));
+        state = state.copyWith(
+          parcelas: state.parcelas
+              .map((item) => item.id == installment.id ? remote : item)
+              .toList(),
+        );
+        return;
+      case 'notificationRead':
+        final id = '${payload['notificationId']}';
+        final response = await _dio.patch(
+          '/sales/notifications/$id/read',
+          data: {'lida': payload['read']},
+        );
+        final remote = _notificacaoFromJson(_responseMap(response.data));
+        state = state.copyWith(
+          notificacoes: state.notificacoes
+              .map((item) => item.id == id ? remote : item)
+              .toList(),
+        );
+        return;
+    }
+    throw AppException('Operacao offline desconhecida: ${operation.type}');
+  }
+
+  Future<String> _resolveInstallmentId(Parcela installment) async {
+    final mapped = _resolveId(installment.id);
+    if (!_isLocalId(mapped)) return mapped;
+    final saleId = _resolveId(installment.vendaId);
+    if (_isLocalId(saleId)) {
+      throw const AppException('A venda ainda nao foi sincronizada.');
+    }
+    final response = await _dio.get('/sales/snapshot');
+    final remote = _snapshotFromMap(
+      Map<String, dynamic>.from(response.data as Map),
+    );
+    final match = remote.parcelas.firstWhere(
+      (item) => item.vendaId == saleId && item.numero == installment.numero,
+    );
+    _idMap[installment.id] = match.id;
+    return match.id;
+  }
+
+  void _remapClient(String localId, Cliente remote) {
+    _idMap[localId] = remote.id;
+    state = state.copyWith(
+      clientes: [
+        ...state.clientes.where((item) => item.id != localId),
+        remote,
+      ],
+      vendas: state.vendas
+          .map((sale) => sale.clienteId == localId
+              ? sale.copyWith(clienteId: remote.id)
+              : sale)
+          .toList(),
+    );
+  }
+
+  void _remapProduct(String localId, Produto remote) {
+    _idMap[localId] = remote.id;
+    state = state.copyWith(
+      produtos: [
+        ...state.produtos.where((item) => item.id != localId),
+        remote,
+      ],
+      vendas: state.vendas.map((sale) {
+        return sale.copyWith(
+          itens: sale.itens
+              .map((item) => item.produtoId == localId
+                  ? ItemVenda(
+                      produtoId: remote.id,
+                      quantidade: item.quantidade,
+                      precoUnitario: item.precoUnitario,
+                    )
+                  : item)
+              .toList(),
+        );
+      }).toList(),
+    );
+  }
+
+  void _remapSale(String localId, String remoteId) {
+    _idMap[localId] = remoteId;
+    state = state.copyWith(
+      vendas: state.vendas
+          .map((sale) => sale.id == localId
+              ? sale.copyWith(id: remoteId, syncStatus: SyncStatus.synced)
+              : sale)
+          .toList(),
+      parcelas: state.parcelas
+          .map((item) =>
+              item.vendaId == localId ? item.copyWith(vendaId: remoteId) : item)
+          .toList(),
+    );
+  }
+
+  Venda _resolvedSale(Venda sale) {
+    return sale.copyWith(
+      clienteId: _resolveId(sale.clienteId),
+      itens: sale.itens
+          .map((item) => ItemVenda(
+                produtoId: _resolveId(item.produtoId),
+                quantidade: item.quantidade,
+                precoUnitario: item.precoUnitario,
+              ))
+          .toList(),
+    );
+  }
+
+  String _resolveId(String id) => _idMap[id] ?? id;
+  bool _isLocalId(String id) => id.startsWith('local-');
+
+  Parcela? _parcelaById(String id) {
+    for (final installment in state.parcelas) {
+      if (installment.id == id) return installment;
+    }
+    return null;
+  }
+
+  Future<void> _persist() {
+    return _store.write(jsonEncode({
+      'snapshot': _snapshotToJson(state),
+      'outbox': _outbox.map((item) => item.toJson()).toList(),
+      'idMap': _idMap,
+    }));
+  }
+
+  String _newId(String prefix) {
+    final random = Random.secure().nextInt(1 << 32).toRadixString(16);
+    return '$prefix-${DateTime.now().microsecondsSinceEpoch}-$random';
+  }
+
+  @override
+  void dispose() {
+    _retryTimer?.cancel();
+    super.dispose();
+  }
+
+  void _upsertClient(Cliente client) {
+    state = state.copyWith(
+      clientes: [
+        ...state.clientes.where((item) => item.id != client.id),
+        client,
+      ],
+    );
+  }
+
+  void _upsertProduct(Produto product) {
+    state = state.copyWith(
+      produtos: [
+        ...state.produtos.where((item) => item.id != product.id),
+        product,
+      ],
+    );
+  }
 }
 
 SalesSnapshot _snapshotFromMap(Map<String, dynamic> json) {
@@ -590,20 +1016,6 @@ SalesSnapshot _snapshotFromMap(Map<String, dynamic> json) {
         _list(json['notificacoes']).map(_notificacaoFromJson).toList(),
   );
 }
-
-Map<String, dynamic> _clienteToJson(Cliente cliente) => {
-      'id': cliente.id,
-      'nome': cliente.nome,
-      'telefone': cliente.telefone,
-      'bairro': cliente.bairro,
-      'score': cliente.score,
-      'status': cliente.status.name,
-      'emAberto': cliente.emAberto,
-      'totalCompras': cliente.totalCompras,
-      'parcelasAtraso': cliente.parcelasAtraso,
-      'totalComprado': cliente.totalComprado,
-      'syncStatus': cliente.syncStatus.name,
-    };
 
 Cliente _clienteFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
@@ -623,22 +1035,6 @@ Cliente _clienteFromJson(Object? value) {
         _enumByName(SyncStatus.values, json['syncStatus'], SyncStatus.synced),
   );
 }
-
-Map<String, dynamic> _produtoToJson(Produto produto) => {
-      'id': produto.id,
-      'nome': produto.nome,
-      'categoria': produto.categoria,
-      'precoBase': produto.precoBase,
-      'custo': produto.custo,
-      'estoque': produto.estoque,
-      'estoqueMinimo': produto.estoqueMinimo,
-      'volumeMl': produto.volumeMl,
-      'frascoColorValue': produto.frascoColorValue,
-      'tem3D': produto.tem3D,
-      'modelo3DPath': produto.modelo3DPath,
-      'previewImg': produto.previewImg,
-      'syncStatus': produto.syncStatus.name,
-    };
 
 Produto _produtoFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
@@ -703,19 +1099,6 @@ ItemVenda _itemVendaFromJson(Object? value) {
   );
 }
 
-Map<String, dynamic> _parcelaToJson(Parcela parcela) => {
-      'id': parcela.id,
-      'vendaId': parcela.vendaId,
-      'numero': parcela.numero,
-      'total': parcela.total,
-      'valor': parcela.valor,
-      'vencimento': parcela.vencimento.toIso8601String(),
-      'status': parcela.status.name,
-      'valorPago': parcela.valorPago,
-      'eventos': parcela.eventos.map(_eventoParcelaToJson).toList(),
-      'syncStatus': parcela.syncStatus.name,
-    };
-
 Parcela _parcelaFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
   return Parcela(
@@ -734,16 +1117,6 @@ Parcela _parcelaFromJson(Object? value) {
   );
 }
 
-Map<String, dynamic> _pagamentoToJson(Pagamento pagamento) => {
-      'id': pagamento.id,
-      'parcelaId': pagamento.parcelaId,
-      'data': pagamento.data.toIso8601String(),
-      'valor': pagamento.valor,
-      'forma': pagamento.forma,
-      'observacoes': pagamento.observacoes,
-      'syncStatus': pagamento.syncStatus.name,
-    };
-
 Pagamento _pagamentoFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
   return Pagamento(
@@ -758,13 +1131,6 @@ Pagamento _pagamentoFromJson(Object? value) {
   );
 }
 
-Map<String, dynamic> _eventoParcelaToJson(EventoParcela evento) => {
-      'tipo': evento.tipo.name,
-      'data': evento.data.toIso8601String(),
-      'descricao': evento.descricao,
-      'valor': evento.valor,
-    };
-
 EventoParcela _eventoParcelaFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
   return EventoParcela(
@@ -774,17 +1140,6 @@ EventoParcela _eventoParcelaFromJson(Object? value) {
     valor: (json['valor'] as num?)?.toDouble(),
   );
 }
-
-Map<String, dynamic> _notificacaoToJson(Notificacao notificacao) => {
-      'id': notificacao.id,
-      'clienteId': notificacao.clienteId,
-      'parcelaId': notificacao.parcelaId,
-      'tipo': notificacao.tipo.name,
-      'data': notificacao.data.toIso8601String(),
-      'texto': notificacao.texto,
-      'valor': notificacao.valor,
-      'lida': notificacao.lida,
-    };
 
 Notificacao _notificacaoFromJson(Object? value) {
   final json = value as Map<String, dynamic>;
@@ -806,11 +1161,180 @@ Notificacao _notificacaoFromJson(Object? value) {
 
 List<Object?> _list(Object? value) => (value as List?)?.cast<Object?>() ?? [];
 
-bool _isRemoteId(String id) => int.tryParse(id) != null;
+Map<String, dynamic> _responseMap(Object? value) {
+  if (value is Map) return Map<String, dynamic>.from(value);
+  throw const AppException('Resposta inesperada do backend.');
+}
 
-bool _canSyncSale(Venda venda) {
-  return _isRemoteId(venda.clienteId) &&
-      venda.itens.every((item) => _isRemoteId(item.produtoId));
+Map<String, dynamic> _productWriteJson(
+  Produto product, {
+  bool includeStock = false,
+}) {
+  return {
+    'nome': product.nome,
+    'categoria': product.categoria,
+    'precoBase': product.precoBase,
+    'custo': product.custo,
+    if (includeStock) 'estoque': product.estoque,
+    'estoqueMinimo': product.estoqueMinimo,
+    'volumeMl': product.volumeMl,
+    'frascoColorValue': product.frascoColorValue,
+  };
+}
+
+String _apiDate(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '${value.year}-$month-$day';
+}
+
+Map<String, dynamic> _snapshotToJson(SalesSnapshot snapshot) => {
+      'hoje': snapshot.hoje.toIso8601String(),
+      'clientes': snapshot.clientes.map(_clienteToJson).toList(),
+      'produtos': snapshot.produtos.map(_produtoToJson).toList(),
+      'vendas': snapshot.vendas.map(_vendaToJson).toList(),
+      'parcelas': snapshot.parcelas.map(_parcelaToJson).toList(),
+      'pagamentos': snapshot.pagamentos.map(_pagamentoToJson).toList(),
+      'notificacoes': snapshot.notificacoes.map(_notificacaoToJson).toList(),
+    };
+
+Map<String, dynamic> _clienteToJson(Cliente value) => {
+      'id': value.id,
+      'nome': value.nome,
+      'telefone': value.telefone,
+      'bairro': value.bairro,
+      'score': value.score,
+      'status': value.status.name,
+      'emAberto': value.emAberto,
+      'totalCompras': value.totalCompras,
+      'parcelasAtraso': value.parcelasAtraso,
+      'totalComprado': value.totalComprado,
+      'syncStatus': value.syncStatus.name,
+    };
+
+Map<String, dynamic> _produtoToJson(Produto value) => {
+      'id': value.id,
+      'nome': value.nome,
+      'categoria': value.categoria,
+      'precoBase': value.precoBase,
+      'custo': value.custo,
+      'estoque': value.estoque,
+      'estoqueMinimo': value.estoqueMinimo,
+      'volumeMl': value.volumeMl,
+      'frascoColorValue': value.frascoColorValue,
+      'tem3D': value.tem3D,
+      'modelo3DPath': value.modelo3DPath,
+      'previewImg': value.previewImg,
+      'syncStatus': value.syncStatus.name,
+    };
+
+Map<String, dynamic> _parcelaToJson(Parcela value) => {
+      'id': value.id,
+      'vendaId': value.vendaId,
+      'numero': value.numero,
+      'total': value.total,
+      'valor': value.valor,
+      'vencimento': value.vencimento.toIso8601String(),
+      'status': value.status.name,
+      'valorPago': value.valorPago,
+      'eventos': value.eventos
+          .map((event) => {
+                'tipo': event.tipo.name,
+                'data': event.data.toIso8601String(),
+                'descricao': event.descricao,
+                'valor': event.valor,
+              })
+          .toList(),
+      'syncStatus': value.syncStatus.name,
+    };
+
+Map<String, dynamic> _pagamentoToJson(Pagamento value) => {
+      'id': value.id,
+      'parcelaId': value.parcelaId,
+      'data': value.data.toIso8601String(),
+      'valor': value.valor,
+      'forma': value.forma,
+      'observacoes': value.observacoes,
+      'syncStatus': value.syncStatus.name,
+    };
+
+Map<String, dynamic> _notificacaoToJson(Notificacao value) => {
+      'id': value.id,
+      'clienteId': value.clienteId,
+      'parcelaId': value.parcelaId,
+      'tipo': value.tipo.name,
+      'data': value.data.toIso8601String(),
+      'texto': value.texto,
+      'valor': value.valor,
+      'lida': value.lida,
+    };
+
+List<Parcela> _localInstallments(Venda sale) {
+  final remaining = sale.restante;
+  if (remaining <= 0 || sale.numParcelas <= 0) return const [];
+  final base = (remaining / sale.numParcelas * 100).round() / 100;
+  final values = List<double>.filled(sale.numParcelas, base);
+  values[values.length - 1] =
+      (remaining - values.take(values.length - 1).fold(0.0, (a, b) => a + b));
+  return [
+    for (var index = 0; index < values.length; index++)
+      Parcela(
+        id: 'local-installment-${sale.id}-${index + 1}',
+        vendaId: sale.id,
+        numero: index + 1,
+        total: values.length,
+        valor: values[index],
+        vencimento: DateTime(
+          sale.data.year,
+          sale.data.month + index + 1,
+          sale.data.day,
+        ),
+        status: ParcelaStatus.pendente,
+        syncStatus: SyncStatus.pending,
+      ),
+  ];
+}
+
+bool _isTemporaryConnectionError(Object error) {
+  if (error is! DioException) return false;
+  if (error.response?.statusCode case final int status when status >= 500) {
+    return true;
+  }
+  return error.response == null &&
+      {
+        DioExceptionType.connectionError,
+        DioExceptionType.connectionTimeout,
+        DioExceptionType.sendTimeout,
+        DioExceptionType.receiveTimeout,
+        DioExceptionType.unknown,
+      }.contains(error.type);
+}
+
+AppException _asAppException(Object error) {
+  if (error is AppException) return error;
+  if (error is DioException) {
+    final responseData = error.response?.data;
+    String? detail;
+    if (responseData is Map) {
+      final raw = responseData['detail'] ?? responseData['error'];
+      if (raw is String) {
+        detail = raw;
+      } else if (raw is List && raw.isNotEmpty) {
+        final first = raw.first;
+        if (first is Map && first['msg'] != null) {
+          detail = first['msg'].toString();
+        }
+      }
+    }
+    return AppException(
+      detail ??
+          (error.type == DioExceptionType.connectionError
+              ? 'Nao foi possivel conectar ao backend.'
+              : 'A operacao nao foi confirmada pelo backend.'),
+      error,
+    );
+  }
+  return AppException('Nao foi possivel concluir a operacao.', error);
 }
 
 T _enumByName<T extends Enum>(List<T> values, Object? raw, T fallback) {
@@ -822,4 +1346,43 @@ T _enumByName<T extends Enum>(List<T> values, Object? raw, T fallback) {
 
 DateTime _dateOnly(DateTime value) {
   return DateTime(value.year, value.month, value.day);
+}
+
+class _PendingSalesOperation {
+  final String id;
+  final String type;
+  final Map<String, dynamic> payload;
+  final DateTime createdAt;
+  int attempts;
+  String? lastError;
+
+  _PendingSalesOperation({
+    required this.id,
+    required this.type,
+    required this.payload,
+    DateTime? createdAt,
+    this.attempts = 0,
+    this.lastError,
+  }) : createdAt = createdAt ?? DateTime.now();
+
+  factory _PendingSalesOperation.fromJson(Object? value) {
+    final json = Map<String, dynamic>.from(value as Map);
+    return _PendingSalesOperation(
+      id: json['id'] as String,
+      type: json['type'] as String,
+      payload: Map<String, dynamic>.from(json['payload'] as Map),
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      attempts: (json['attempts'] as num?)?.toInt() ?? 0,
+      lastError: json['lastError'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'type': type,
+        'payload': payload,
+        'createdAt': createdAt.toIso8601String(),
+        'attempts': attempts,
+        'lastError': lastError,
+      };
 }

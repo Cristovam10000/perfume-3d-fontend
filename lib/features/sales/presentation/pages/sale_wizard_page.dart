@@ -7,10 +7,16 @@ import '../../../../app/theme/app_tokens.dart';
 import '../../../../core/utils/app_formatters.dart';
 import '../../data/sales_repository.dart';
 import '../../domain/sales_models.dart';
+import '../widgets/commercial_actions.dart';
 import '../widgets/sales_widgets.dart';
 
 class SaleWizardPage extends ConsumerStatefulWidget {
-  const SaleWizardPage({super.key});
+  const SaleWizardPage({
+    super.key,
+    this.initialClientId,
+  });
+
+  final String? initialClientId;
 
   @override
   ConsumerState<SaleWizardPage> createState() => _SaleWizardPageState();
@@ -23,11 +29,15 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
   double _entrada = 0;
   int _parcelas = 3;
   bool _catalogExpanded = false;
+  bool _saving = false;
+  bool _creatingClient = false;
   late final TextEditingController _entradaController;
 
   @override
   void initState() {
     super.initState();
+    _clienteId = widget.initialClientId;
+    if (widget.initialClientId != null) _step = 1;
     _entradaController = TextEditingController(text: '0');
   }
 
@@ -40,7 +50,45 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
   @override
   Widget build(BuildContext context) {
     final data = ref.watch(salesSnapshotProvider);
-    _clienteId ??= data.clientes.first.id;
+    if (data.clientes.isEmpty) {
+      return SalesScaffold(
+        title: 'Nova venda',
+        showBack: true,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.people_outline,
+                size: 54,
+                color: AppColors.ink3,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Nenhum cliente cadastrado no banco.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _creatingClient ? null : _createClient,
+                icon: const Icon(Icons.person_add_alt),
+                label: const Text('Cadastrar cliente'),
+              ),
+              TextButton.icon(
+                onPressed: _refreshSales,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Atualizar dados'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_clienteId == null || data.clienteById(_clienteId!) == null) {
+      _clienteId = data.clientes.first.id;
+      if (widget.initialClientId != null) _step = 0;
+    }
     final total = _items.entries.fold<double>(0, (sum, entry) {
       final produto = data.produtoById(entry.key)!;
       return sum + produto.precoBase * entry.value;
@@ -101,6 +149,7 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
                   data: data,
                   selectedId: _clienteId!,
                   onSelected: (id) => setState(() => _clienteId = id),
+                  onCreateClient: _creatingClient ? null : _createClient,
                 ),
                 _ItemsStep(
                   data: data,
@@ -148,7 +197,7 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
               const SizedBox(width: 10),
               Expanded(
                 child: FilledButton(
-                  onPressed: canContinue
+                  onPressed: canContinue && !_saving
                       ? () {
                           if (_step < 3) {
                             setState(() => _step += 1);
@@ -157,17 +206,23 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
                           _confirmSale(data, total);
                         }
                       : null,
-                  child: _step == 3
-                      ? const Text('Confirmar venda')
-                      : const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text('Continuar'),
-                            SizedBox(width: 8),
-                            Icon(Icons.arrow_forward_rounded, size: 20),
-                          ],
-                        ),
+                  child: _saving
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : _step == 3
+                          ? const Text('Confirmar venda')
+                          : const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('Continuar'),
+                                SizedBox(width: 8),
+                                Icon(Icons.arrow_forward_rounded, size: 20),
+                              ],
+                            ),
                 ),
               ),
             ],
@@ -244,7 +299,7 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
     return value.toStringAsFixed(2).replaceAll('.', ',');
   }
 
-  void _confirmSale(SalesSnapshot data, double total) {
+  Future<void> _confirmSale(SalesSnapshot data, double total) async {
     final venda = Venda(
       id: _nextSaleId(data),
       clienteId: _clienteId!,
@@ -263,13 +318,62 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
       syncStatus: SyncStatus.pending,
     );
 
-    ref.read(salesControllerProvider.notifier).confirmSale(venda);
+    setState(() => _saving = true);
+    try {
+      final confirmed =
+          await ref.read(salesControllerProvider.notifier).confirmSale(venda);
+      if (!mounted) return;
+      context.goNamed(
+        AppRoutes.saleDetailName,
+        pathParameters: {'id': confirmed.id},
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('$error'),
+          action: SnackBarAction(
+            label: 'Tentar novamente',
+            onPressed: () => _confirmSale(data, total),
+          ),
+        ),
+      );
+    }
+  }
 
-    context.goNamed(
-      AppRoutes.saleDetailName,
-      pathParameters: {'id': venda.id},
-      extra: venda,
-    );
+  Future<void> _createClient() async {
+    final value = await showClientForm(context);
+    if (value == null || !mounted) return;
+    setState(() => _creatingClient = true);
+    try {
+      final client =
+          await ref.read(salesControllerProvider.notifier).createClient(
+                nome: value.name,
+                telefone: value.phone,
+                bairro: value.neighborhood,
+              );
+      if (!mounted) return;
+      setState(() => _clienteId = client.id);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$error')),
+      );
+    } finally {
+      if (mounted) setState(() => _creatingClient = false);
+    }
+  }
+
+  Future<void> _refreshSales() async {
+    try {
+      await ref.read(salesControllerProvider.notifier).refresh();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$error')),
+      );
+    }
   }
 
   String _nextSaleId(SalesSnapshot data) {
@@ -285,11 +389,13 @@ class _ClientStep extends StatelessWidget {
   final SalesSnapshot data;
   final String selectedId;
   final ValueChanged<String> onSelected;
+  final VoidCallback? onCreateClient;
 
   const _ClientStep({
     required this.data,
     required this.selectedId,
     required this.onSelected,
+    required this.onCreateClient,
   });
 
   @override
@@ -305,8 +411,11 @@ class _ClientStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        const _DashedButton(
-            icon: Icons.person_add_alt, label: 'Cadastrar novo cliente'),
+        _DashedButton(
+          icon: Icons.person_add_alt,
+          label: 'Cadastrar novo cliente',
+          onTap: onCreateClient,
+        ),
         const SizedBox(height: 12),
         for (final cliente in data.clientes) ...[
           _SelectableClient(
@@ -335,6 +444,9 @@ class _SelectableClient extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return InkWell(
+      key: ValueKey(
+        'sale-client-${cliente.id}-${selected ? 'selected' : 'unselected'}',
+      ),
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.lg),
       child: Container(
@@ -582,6 +694,15 @@ class _ProductCatalog extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
+          if (produtos.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(18),
+              child: Text(
+                'Nenhum produto cadastrado no banco.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: AppColors.ink3),
+              ),
+            ),
           for (var i = 0; i < produtos.length; i++) ...[
             _ProductOptionRow(
               key: ValueKey('catalog-product-${produtos[i].id}'),
