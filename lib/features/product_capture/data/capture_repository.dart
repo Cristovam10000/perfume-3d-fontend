@@ -21,6 +21,7 @@ abstract class CaptureRepository {
   Future<UploadResult> uploadImages(
     List<File> images, {
     List<String>? views,
+    int? productId,
     void Function(double progress)? onProgress,
   });
 }
@@ -33,6 +34,7 @@ class CaptureRepositoryImpl implements CaptureRepository {
   Future<UploadResult> uploadImages(
     List<File> images, {
     List<String>? views,
+    int? productId,
     void Function(double progress)? onProgress,
   }) async {
     if (views != null && views.length != images.length) {
@@ -52,6 +54,9 @@ class CaptureRepositoryImpl implements CaptureRepository {
       };
       if (views != null && views.isNotEmpty) {
         formMap['views'] = views;
+      }
+      if (productId != null) {
+        formMap['productId'] = productId;
       }
       final formData = FormData.fromMap(formMap);
 

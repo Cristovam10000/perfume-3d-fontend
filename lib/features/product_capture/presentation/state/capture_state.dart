@@ -19,9 +19,12 @@ class CaptureState {
 
   final List<QualityMessage> qualityMessages;
   final bool uploading;
-  final bool selectingFromGallery;
+
+  /// Impede duas câmeras/galerias de serem abertas ao mesmo tempo.
+  final bool selectingImage;
   final double uploadProgress;
   final String? error;
+  final int? productId;
 
   const CaptureState({
     this.cardinals = const {
@@ -33,9 +36,10 @@ class CaptureState {
     this.extras = const [],
     this.qualityMessages = const [],
     this.uploading = false,
-    this.selectingFromGallery = false,
+    this.selectingImage = false,
     this.uploadProgress = 0,
     this.error,
+    this.productId,
   });
 
   CaptureState copyWith({
@@ -43,19 +47,22 @@ class CaptureState {
     List<File>? extras,
     List<QualityMessage>? qualityMessages,
     bool? uploading,
-    bool? selectingFromGallery,
+    bool? selectingImage,
     double? uploadProgress,
     String? error,
     bool clearError = false,
+    int? productId,
+    bool clearProductId = false,
   }) {
     return CaptureState(
       cardinals: cardinals ?? this.cardinals,
       extras: extras ?? this.extras,
       qualityMessages: qualityMessages ?? this.qualityMessages,
       uploading: uploading ?? this.uploading,
-      selectingFromGallery: selectingFromGallery ?? this.selectingFromGallery,
+      selectingImage: selectingImage ?? this.selectingImage,
       uploadProgress: uploadProgress ?? this.uploadProgress,
       error: clearError ? null : (error ?? this.error),
+      productId: clearProductId ? null : (productId ?? this.productId),
     );
   }
 
@@ -70,7 +77,7 @@ class CaptureState {
       AppConstants.cardinalViews.every((v) => cardinals[v] != null);
 
   /// Pronto para enviar = todas as cardeais preenchidas.
-  bool get canSubmit => allCardinalsFilled && !uploading;
+  bool get canSubmit => allCardinalsFilled && !uploading && !selectingImage;
 
   /// True se ainda cabem extras.
   bool get canAddExtra => extras.length < AppConstants.maxExtras;

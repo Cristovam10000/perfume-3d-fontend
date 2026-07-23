@@ -14,28 +14,69 @@ import '../../../../shared/widgets/quality_banner.dart';
 import '../../../processing/presentation/state/processing_controller.dart';
 import '../state/capture_controller.dart';
 
+@visibleForTesting
+ImageProvider<Object> capturePreviewImageProvider(
+  File file, {
+  required int cacheWidth,
+}) {
+  return ResizeImage(FileImage(file), width: cacheWidth);
+}
+
 /// Tela principal de captura guiada (grid 4 vistas + 2 extras).
 ///
 /// Cada slot abre a câmera nativa direcionada à vista correspondente.
 /// O botão "Enviar" só ativa quando as 4 cardeais estão preenchidas.
-class CaptureViewsPage extends ConsumerWidget {
-  const CaptureViewsPage({super.key});
+class CaptureViewsPage extends ConsumerStatefulWidget {
+  const CaptureViewsPage({super.key, this.productId});
+
+  final int? productId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CaptureViewsPage> createState() => _CaptureViewsPageState();
+}
+
+class _CaptureViewsPageState extends ConsumerState<CaptureViewsPage> {
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(
+      () => ref
+          .read(captureControllerProvider.notifier)
+          .setProductId(widget.productId),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant CaptureViewsPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.productId != widget.productId) {
+      Future.microtask(
+        () => ref
+            .read(captureControllerProvider.notifier)
+            .setProductId(widget.productId),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(captureControllerProvider);
     final controller = ref.read(captureControllerProvider.notifier);
+    final selectingImage = state.selectingImage;
 
     Future<void> onSubmit() async {
       final jobId = await controller.submit();
       if (!context.mounted) return;
       if (jobId == null) {
+        final current = ref.read(captureControllerProvider);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(state.error ?? 'Falha no envio.')),
+          SnackBar(content: Text(current.error ?? 'Falha no envio.')),
         );
         return;
       }
-      ref.read(processingControllerProvider.notifier).start(jobId);
+      ref
+          .read(processingControllerProvider.notifier)
+          .start(jobId, productId: widget.productId);
       context.goNamed(AppRoutes.processingName);
     }
 
@@ -64,7 +105,7 @@ class CaptureViewsPage extends ConsumerWidget {
                 _CardinalSlot(
                   view: view,
                   file: state.cardinals[view],
-                  disabled: state.uploading,
+                  disabled: state.uploading || selectingImage,
                   onCapture: () => _captureFor(context, controller, view),
                   onClear: () => controller.removeCardinal(view),
                 ),
@@ -73,9 +114,11 @@ class CaptureViewsPage extends ConsumerWidget {
           const SizedBox(height: 20),
           _ExtrasSection(
             extras: state.extras,
-            canAdd: state.canAddExtra && !state.uploading,
+            canAdd: state.canAddExtra && !state.uploading && !selectingImage,
             onAdd: () => _addExtra(context, controller),
-            onRemove: state.uploading ? null : controller.removeExtraAt,
+            onRemove: state.uploading || selectingImage
+                ? null
+                : controller.removeExtraAt,
           ),
           if (state.uploading) ...[
             const SizedBox(height: 16),
@@ -119,13 +162,9 @@ class CaptureViewsPage extends ConsumerWidget {
     BuildContext context,
     CaptureController controller,
   ) async {
-    final picker = ImagePicker();
     final source = await _pickSource(context);
     if (source == null) return;
-    final xfile = await picker.pickImage(source: source, imageQuality: 90);
-    if (xfile != null) {
-      controller.addExtra(File(xfile.path));
-    }
+    await controller.pickExtra(source);
   }
 
   Future<ImageSource?> _pickSource(BuildContext context) {
@@ -190,7 +229,15 @@ class _CardinalSlot extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (filled)
-              Image.file(file!, fit: BoxFit.cover)
+              Image(
+                key: ValueKey('cardinal-preview-$view'),
+                image: capturePreviewImageProvider(
+                  file!,
+                  cacheWidth: AppConstants.cardinalPreviewCacheWidth,
+                ),
+                fit: BoxFit.cover,
+                filterQuality: FilterQuality.medium,
+              )
             else
               Center(
                 child: Column(
@@ -289,6 +336,7 @@ class _ExtrasSection extends StatelessWidget {
             for (var i = 0; i < extras.length; i++)
               _ExtraThumb(
                 file: extras[i],
+                imageKey: ValueKey('extra-preview-$i'),
                 onRemove: onRemove == null ? null : () => onRemove!(i),
               ),
             if (canAdd)
@@ -318,9 +366,14 @@ class _ExtrasSection extends StatelessWidget {
 
 class _ExtraThumb extends StatelessWidget {
   final File file;
+  final Key imageKey;
   final VoidCallback? onRemove;
 
-  const _ExtraThumb({required this.file, required this.onRemove});
+  const _ExtraThumb({
+    required this.file,
+    required this.imageKey,
+    required this.onRemove,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -328,11 +381,16 @@ class _ExtraThumb extends StatelessWidget {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.file(
-            file,
+          child: Image(
+            key: imageKey,
+            image: capturePreviewImageProvider(
+              file,
+              cacheWidth: AppConstants.extraPreviewCacheWidth,
+            ),
             width: 80,
             height: 80,
             fit: BoxFit.cover,
+            filterQuality: FilterQuality.medium,
           ),
         ),
         if (onRemove != null)
