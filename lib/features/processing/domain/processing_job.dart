@@ -32,6 +32,8 @@ class ProcessingJob {
   final String? message;
   final String? modelUrl;
   final String? error;
+  final String? pollingWarning;
+  final int? productId;
 
   const ProcessingJob({
     this.jobId,
@@ -39,10 +41,13 @@ class ProcessingJob {
     this.message,
     this.modelUrl,
     this.error,
+    this.pollingWarning,
+    this.productId,
   });
 
   bool get isCompleted => status == ProcessingStatus.completed;
   bool get hasError => status == ProcessingStatus.error;
+  bool get hasPollingWarning => pollingWarning != null;
 
   ProcessingJob copyWith({
     String? jobId,
@@ -50,7 +55,10 @@ class ProcessingJob {
     String? message,
     String? modelUrl,
     String? error,
+    String? pollingWarning,
     bool clearError = false,
+    bool clearPollingWarning = false,
+    int? productId,
   }) {
     return ProcessingJob(
       jobId: jobId ?? this.jobId,
@@ -58,6 +66,9 @@ class ProcessingJob {
       message: message ?? this.message,
       modelUrl: modelUrl ?? this.modelUrl,
       error: clearError ? null : (error ?? this.error),
+      pollingWarning:
+          clearPollingWarning ? null : (pollingWarning ?? this.pollingWarning),
+      productId: productId ?? this.productId,
     );
   }
 

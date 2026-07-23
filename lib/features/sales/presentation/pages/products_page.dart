@@ -198,6 +198,18 @@ class _StockHero extends StatelessWidget {
             color: Colors.white,
             weight: FontWeight.w900,
           ),
+          if (data.produtosSemCusto > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              '${data.produtosSemCusto} produto(s) sem custo cadastrado. '
+              'Edite-os para completar este valor.',
+              style: const TextStyle(
+                color: Color(0xFFFFD7E8),
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
           const SizedBox(height: 18),
           Row(
             children: [
@@ -549,17 +561,18 @@ class _DashedAddButton extends StatelessWidget {
   }
 }
 
-void _showProductActionsSheet(
+Future<void> _showProductActionsSheet(
   BuildContext context,
   WidgetRef ref,
   Produto produto,
-) {
+) async {
   var mode = _SheetMode.actions;
   var restockAmount = 1;
   var adjustedQuantity = produto.estoque;
-  final adjustController = TextEditingController(text: '${produto.estoque}');
+  var saving = false;
 
-  showModalBottomSheet<void>(
+  _ProductSheetAction? nextAction;
+  nextAction = await showModalBottomSheet<_ProductSheetAction>(
     context: context,
     isScrollControlled: true,
     backgroundColor: AppColors.bg,
@@ -568,14 +581,14 @@ void _showProductActionsSheet(
     ),
     builder: (sheetContext) {
       return StatefulBuilder(
-        builder: (context, setSheetState) {
+        builder: (modalContext, setSheetState) {
           return SafeArea(
             top: false,
             child: Padding(
               padding: EdgeInsets.only(
                 left: 20,
                 right: 20,
-                bottom: 20 + MediaQuery.viewInsetsOf(context).bottom,
+                bottom: 20 + MediaQuery.viewInsetsOf(modalContext).bottom,
                 top: 18,
               ),
               child: AnimatedSize(
@@ -590,14 +603,13 @@ void _showProductActionsSheet(
                       onAdjust: () => setSheetState(
                         () => mode = _SheetMode.adjust,
                       ),
+                      onEdit: () => Navigator.of(sheetContext)
+                          .pop(_ProductSheetAction.edit),
+                      onGenerate3D: () => Navigator.of(sheetContext)
+                          .pop(_ProductSheetAction.generate3D),
                       on3D: produto.tem3D
-                          ? () {
-                              Navigator.of(sheetContext).pop();
-                              context.pushNamed(
-                                AppRoutes.product3dName,
-                                pathParameters: {'id': produto.id},
-                              );
-                            }
+                          ? () => Navigator.of(sheetContext)
+                              .pop(_ProductSheetAction.view3D)
                           : null,
                     ),
                   _SheetMode.restock => _RestockContent(
@@ -609,16 +621,28 @@ void _showProductActionsSheet(
                       onBack: () => setSheetState(
                         () => mode = _SheetMode.actions,
                       ),
-                      onSave: () {
-                        ref
-                            .read(salesControllerProvider.notifier)
-                            .restockProduct(produto.id, restockAmount);
-                        Navigator.of(sheetContext).pop();
+                      onSave: () async {
+                        if (saving) return;
+                        setSheetState(() => saving = true);
+                        try {
+                          await ref
+                              .read(salesControllerProvider.notifier)
+                              .restockProduct(produto.id, restockAmount);
+                          if (!sheetContext.mounted) return;
+                          Navigator.of(sheetContext).pop();
+                        } catch (error) {
+                          if (!sheetContext.mounted) return;
+                          setSheetState(() => saving = false);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('$error')),
+                            );
+                          }
+                        }
                       },
                     ),
                   _SheetMode.adjust => _AdjustContent(
                       produto: produto,
-                      controller: adjustController,
                       quantity: adjustedQuantity,
                       onQuantityChanged: (value) => setSheetState(
                         () => adjustedQuantity = value.clamp(0, 999999).toInt(),
@@ -626,11 +650,27 @@ void _showProductActionsSheet(
                       onBack: () => setSheetState(
                         () => mode = _SheetMode.actions,
                       ),
-                      onSave: () {
-                        ref
-                            .read(salesControllerProvider.notifier)
-                            .adjustProductStock(produto.id, adjustedQuantity);
-                        Navigator.of(sheetContext).pop();
+                      onSave: () async {
+                        if (saving) return;
+                        setSheetState(() => saving = true);
+                        try {
+                          await ref
+                              .read(salesControllerProvider.notifier)
+                              .adjustProductStock(
+                                produto.id,
+                                adjustedQuantity,
+                              );
+                          if (!sheetContext.mounted) return;
+                          Navigator.of(sheetContext).pop();
+                        } catch (error) {
+                          if (!sheetContext.mounted) return;
+                          setSheetState(() => saving = false);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('$error')),
+                            );
+                          }
+                        }
                       },
                     ),
                 },
@@ -640,16 +680,41 @@ void _showProductActionsSheet(
         },
       );
     },
-  ).whenComplete(adjustController.dispose);
+  );
+
+  if (!context.mounted) return;
+  switch (nextAction) {
+    case _ProductSheetAction.edit:
+      await _showProductFormSheet(context, ref, product: produto);
+      return;
+    case _ProductSheetAction.generate3D:
+      context.pushNamed(
+        AppRoutes.captureByProductName,
+        pathParameters: {'produtoId': produto.id},
+      );
+      return;
+    case _ProductSheetAction.view3D:
+      context.pushNamed(
+        AppRoutes.product3dName,
+        pathParameters: {'id': produto.id},
+      );
+      return;
+    case null:
+      return;
+  }
 }
 
 enum _SheetMode { actions, restock, adjust }
+
+enum _ProductSheetAction { edit, generate3D, view3D }
 
 class _ProductActionsContent extends StatelessWidget {
   final Produto produto;
   final VoidCallback onClose;
   final VoidCallback onRestock;
   final VoidCallback onAdjust;
+  final VoidCallback onEdit;
+  final VoidCallback onGenerate3D;
   final VoidCallback? on3D;
 
   const _ProductActionsContent({
@@ -657,6 +722,8 @@ class _ProductActionsContent extends StatelessWidget {
     required this.onClose,
     required this.onRestock,
     required this.onAdjust,
+    required this.onEdit,
+    required this.onGenerate3D,
     required this.on3D,
   });
 
@@ -748,6 +815,12 @@ class _ProductActionsContent extends StatelessWidget {
           icon: Icons.sync_rounded,
           onTap: onAdjust,
         ),
+        const SizedBox(height: 12),
+        _SheetActionButton(
+          label: 'Editar produto',
+          icon: Icons.edit_outlined,
+          onTap: onEdit,
+        ),
         if (on3D != null) ...[
           const SizedBox(height: 12),
           _SheetActionButton(
@@ -756,6 +829,12 @@ class _ProductActionsContent extends StatelessWidget {
             onTap: on3D!,
           ),
         ],
+        const SizedBox(height: 12),
+        _SheetActionButton(
+          label: produto.tem3D ? 'Gerar novo molde 3D' : 'Gerar molde 3D',
+          icon: Icons.add_a_photo_outlined,
+          onTap: onGenerate3D,
+        ),
       ],
     );
   }
@@ -831,9 +910,8 @@ class _RestockContent extends StatelessWidget {
   }
 }
 
-class _AdjustContent extends StatelessWidget {
+class _AdjustContent extends StatefulWidget {
   final Produto produto;
-  final TextEditingController controller;
   final int quantity;
   final ValueChanged<int> onQuantityChanged;
   final VoidCallback onBack;
@@ -841,12 +919,30 @@ class _AdjustContent extends StatelessWidget {
 
   const _AdjustContent({
     required this.produto,
-    required this.controller,
     required this.quantity,
     required this.onQuantityChanged,
     required this.onBack,
     required this.onSave,
   });
+
+  @override
+  State<_AdjustContent> createState() => _AdjustContentState();
+}
+
+class _AdjustContentState extends State<_AdjustContent> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '${widget.quantity}');
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -855,7 +951,10 @@ class _AdjustContent extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SheetHeader(
-            title: produto.nome, onClose: onBack, closeIcon: Icons.close),
+          title: widget.produto.nome,
+          onClose: widget.onBack,
+          closeIcon: Icons.close,
+        ),
         const SizedBox(height: 22),
         const Text(
           'QUANTIDADE REAL EM ESTOQUE',
@@ -875,10 +974,10 @@ class _AdjustContent extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         TextField(
-          controller: controller,
+          controller: _controller,
           textAlign: TextAlign.center,
           keyboardType: TextInputType.number,
-          onChanged: (value) => onQuantityChanged(_parseInt(value)),
+          onChanged: (value) => widget.onQuantityChanged(_parseInt(value)),
           style: const TextStyle(
             color: AppColors.ink,
             fontSize: 36,
@@ -894,13 +993,15 @@ class _AdjustContent extends StatelessWidget {
           children: [
             Expanded(
               child: OutlinedButton(
-                  onPressed: onBack, child: const Text('Voltar')),
+                onPressed: widget.onBack,
+                child: const Text('Voltar'),
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(
               flex: 2,
               child: FilledButton.icon(
-                onPressed: quantity >= 0 ? onSave : null,
+                onPressed: widget.quantity >= 0 ? widget.onSave : null,
                 icon: const Icon(Icons.check_rounded),
                 label: const Text('Salvar ajuste'),
               ),
@@ -1150,220 +1251,333 @@ class _PreviewTotal extends StatelessWidget {
   }
 }
 
-void _showProductFormSheet(BuildContext context, WidgetRef ref) {
-  final nameController = TextEditingController();
-  final priceController = TextEditingController();
-  final costController = TextEditingController();
-  final quantityController = TextEditingController();
-  final minController = TextEditingController(text: '1');
-  final volumeController = TextEditingController(text: '100');
-  var category = 'Perfume';
-  var colorValue = 0xFFCB3E7B;
-
-  void disposeControllers() {
-    nameController.dispose();
-    priceController.dispose();
-    costController.dispose();
-    quantityController.dispose();
-    minController.dispose();
-    volumeController.dispose();
-  }
-
-  showModalBottomSheet<void>(
-    context: context,
+Future<void> _showProductFormSheet(
+  BuildContext pageContext,
+  WidgetRef ref, {
+  Produto? product,
+}) async {
+  final saved = await showModalBottomSheet<Produto>(
+    context: pageContext,
     isScrollControlled: true,
     backgroundColor: AppColors.bg,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
-    builder: (sheetContext) {
-      return StatefulBuilder(
-        builder: (context, setSheetState) {
-          final price = _parseDouble(priceController.text);
-          final cost = _parseDouble(costController.text);
-          final quantityText = quantityController.text.trim();
-          final quantity = _parseInt(quantityText);
-          final minStock = _parseInt(minController.text).clamp(1, 9999).toInt();
-          final volume =
-              _parseInt(volumeController.text).clamp(1, 9999).toInt();
-          final name = nameController.text.trim();
-          final canSave =
-              name.isNotEmpty && price > 0 && quantityText.isNotEmpty;
-          final preview = Produto(
-            id: 'preview',
-            nome: name.isEmpty ? 'Novo produto' : name,
-            categoria: category,
-            precoBase: price,
-            custo: cost,
-            estoque: quantity,
-            estoqueMinimo: minStock,
-            volumeMl: volume,
-            frascoColorValue: colorValue,
-            tem3D: false,
-            syncStatus: SyncStatus.pending,
-          );
+    builder: (sheetContext) => _ProductFormSheet(ref: ref, product: product),
+  );
 
-          return SafeArea(
-            top: false,
-            child: Padding(
-              padding: EdgeInsets.only(
-                left: 20,
-                right: 20,
-                top: 18,
-                bottom: 20 + MediaQuery.viewInsetsOf(context).bottom,
+  if (saved == null || product != null || !pageContext.mounted) return;
+
+  if (saved.syncStatus != SyncStatus.synced) {
+    ScaffoldMessenger.of(pageContext).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Produto salvo no aparelho. O molde 3D ficará disponível após a sincronização com o backend.',
+        ),
+      ),
+    );
+    return;
+  }
+
+  final generate = await showDialog<bool>(
+    context: pageContext,
+    builder: (dialogContext) => AlertDialog(
+      title: const Text('Produto salvo'),
+      content: const Text('Deseja gerar o molde 3D agora?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Agora não'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Gerar molde 3D'),
+        ),
+      ],
+    ),
+  );
+  if (generate == true && pageContext.mounted) {
+    pageContext.pushNamed(
+      AppRoutes.captureByProductName,
+      pathParameters: {'produtoId': saved.id},
+    );
+  }
+}
+
+class _ProductFormSheet extends StatefulWidget {
+  final WidgetRef ref;
+  final Produto? product;
+
+  const _ProductFormSheet({required this.ref, required this.product});
+
+  @override
+  State<_ProductFormSheet> createState() => _ProductFormSheetState();
+}
+
+class _ProductFormSheetState extends State<_ProductFormSheet> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _priceController;
+  late final TextEditingController _costController;
+  late final TextEditingController _quantityController;
+  late final TextEditingController _minController;
+  late final TextEditingController _volumeController;
+  late String _category;
+  late int _colorValue;
+  var _saving = false;
+  String? _errorText;
+
+  Produto? get _product => widget.product;
+
+  @override
+  void initState() {
+    super.initState();
+    final product = widget.product;
+    _nameController = TextEditingController(text: product?.nome ?? '');
+    _priceController = TextEditingController(
+      text: product == null ? '' : product.precoBase.toStringAsFixed(2),
+    );
+    _costController = TextEditingController(
+      text: product == null || product.custo <= 0
+          ? ''
+          : product.custo.toStringAsFixed(2),
+    );
+    _quantityController = TextEditingController(
+      text: product == null ? '' : '${product.estoque}',
+    );
+    _minController =
+        TextEditingController(text: '${product?.estoqueMinimo ?? 1}');
+    _volumeController =
+        TextEditingController(text: '${product?.volumeMl ?? 100}');
+    _category = product?.categoria ?? 'Perfume';
+    _colorValue = product?.frascoColorValue ?? 0xFFCB3E7B;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _priceController.dispose();
+    _costController.dispose();
+    _quantityController.dispose();
+    _minController.dispose();
+    _volumeController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final product = _product;
+    final price = _parseDouble(_priceController.text);
+    final cost = _parseDouble(_costController.text);
+    final quantityText = _quantityController.text.trim();
+    final quantity = _parseInt(quantityText);
+    final minStock = _parseInt(_minController.text).clamp(1, 9999).toInt();
+    final volume = _parseInt(_volumeController.text).clamp(1, 9999).toInt();
+    final name = _nameController.text.trim();
+    final canSave = name.isNotEmpty &&
+        price > 0 &&
+        cost > 0 &&
+        (product != null || quantityText.isNotEmpty);
+    final preview = Produto(
+      id: product?.id ?? 'preview',
+      nome: name.isEmpty ? 'Novo produto' : name,
+      categoria: _category,
+      precoBase: price,
+      custo: cost,
+      estoque: quantity,
+      estoqueMinimo: minStock,
+      volumeMl: volume,
+      frascoColorValue: _colorValue,
+      tem3D: product?.tem3D ?? false,
+      modelo3DPath: product?.modelo3DPath,
+      previewImg: product?.previewImg,
+      syncStatus: product?.syncStatus ?? SyncStatus.pending,
+    );
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          top: 18,
+          bottom: 20 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SheetHeader(
+                title: product == null ? 'Novo produto' : 'Editar produto',
+                onClose: () => Navigator.of(context).pop(),
               ),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _SheetHeader(
-                      title: 'Novo produto',
-                      onClose: () => Navigator.of(sheetContext).pop(),
-                    ),
-                    const SizedBox(height: 12),
-                    Center(
-                      child: ProductBottlePreview(
-                        produto: preview,
-                        width: 118,
-                        height: 148,
-                        show3DBadge: false,
-                        showLabel: true,
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-                    _LabeledField(
-                      label: 'Nome*',
-                      controller: nameController,
-                      onChanged: (_) => setSheetState(() {}),
-                    ),
-                    const SizedBox(height: 12),
-                    const SectionHeader(title: 'Categoria'),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final option in const [
-                          'Perfume',
-                          'Feminino',
-                          'Masculino',
-                          'Unissex',
-                          'Body splash',
-                          'Hidratante',
-                        ])
-                          ChoiceChip(
-                            label: Text(option),
-                            selected: category == option,
-                            onSelected: (_) =>
-                                setSheetState(() => category = option),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _LabeledField(
-                            label: 'Preco*',
-                            controller: priceController,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            onChanged: (_) => setSheetState(() {}),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _LabeledField(
-                            label: 'Custo',
-                            controller: costController,
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            onChanged: (_) => setSheetState(() {}),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _LabeledField(
-                            label: 'Qtd*',
-                            controller: quantityController,
-                            keyboardType: TextInputType.number,
-                            onChanged: (_) => setSheetState(() {}),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _LabeledField(
-                            label: 'Estoque minimo',
-                            controller: minController,
-                            keyboardType: TextInputType.number,
-                            onChanged: (_) => setSheetState(() {}),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    _LabeledField(
-                      label: 'Ml',
-                      controller: volumeController,
-                      keyboardType: TextInputType.number,
-                      onChanged: (_) => setSheetState(() {}),
-                    ),
-                    const SizedBox(height: 12),
-                    const SectionHeader(title: 'Cor do frasco'),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        for (final color in const [
-                          0xFFCB3E7B,
-                          0xFF4863A8,
-                          0xFFB13B72,
-                          0xFF94683E,
-                          0xFF336D88,
-                          0xFF2A1A23,
-                        ])
-                          _ColorSwatch(
-                            colorValue: color,
-                            selected: colorValue == color,
-                            onTap: () =>
-                                setSheetState(() => colorValue = color),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 22),
-                    FilledButton.icon(
-                      onPressed: canSave
-                          ? () {
-                              final produto = preview.copyWith(
-                                id: ref
-                                    .read(salesControllerProvider.notifier)
-                                    .nextProductId(),
-                              );
-                              ref
-                                  .read(salesControllerProvider.notifier)
-                                  .addProduct(produto);
-                              Navigator.of(sheetContext).pop();
-                            }
-                          : null,
-                      icon: const Icon(Icons.check_rounded),
-                      label: const Text('Salvar produto'),
-                    ),
-                  ],
+              const SizedBox(height: 12),
+              Center(
+                child: ProductBottlePreview(
+                  produto: preview,
+                  width: 118,
+                  height: 148,
+                  show3DBadge: false,
+                  showLabel: true,
                 ),
               ),
-            ),
-          );
-        },
-      );
-    },
-  ).whenComplete(disposeControllers);
+              const SizedBox(height: 18),
+              _LabeledField(
+                label: 'Nome*',
+                controller: _nameController,
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 12),
+              const SectionHeader(title: 'Categoria'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final option in const [
+                    'Perfume',
+                    'Feminino',
+                    'Masculino',
+                    'Unissex',
+                    'Body splash',
+                    'Hidratante',
+                  ])
+                    ChoiceChip(
+                      label: Text(option),
+                      selected: _category == option,
+                      onSelected: (_) => setState(() => _category = option),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _LabeledField(
+                      label: 'Preco*',
+                      controller: _priceController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _LabeledField(
+                      label: 'Custo*',
+                      controller: _costController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _LabeledField(
+                      label: 'Qtd*',
+                      controller: _quantityController,
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
+                      enabled: product == null,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _LabeledField(
+                      label: 'Estoque minimo',
+                      controller: _minController,
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _LabeledField(
+                label: 'Ml',
+                controller: _volumeController,
+                keyboardType: TextInputType.number,
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 12),
+              const SectionHeader(title: 'Cor do frasco'),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  for (final color in const [
+                    0xFFCB3E7B,
+                    0xFF4863A8,
+                    0xFFB13B72,
+                    0xFF94683E,
+                    0xFF336D88,
+                    0xFF2A1A23,
+                  ])
+                    _ColorSwatch(
+                      colorValue: color,
+                      selected: _colorValue == color,
+                      onTap: () => setState(() => _colorValue = color),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 22),
+              if (_errorText != null) ...[
+                Text(
+                  _errorText!,
+                  style: const TextStyle(
+                    color: AppColors.bad,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+              FilledButton.icon(
+                onPressed:
+                    canSave && !_saving ? () => _handleSave(preview) : null,
+                icon: _saving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check_rounded),
+                label: Text(
+                  product == null ? 'Salvar produto' : 'Salvar alterações',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _handleSave(Produto preview) async {
+    setState(() {
+      _saving = true;
+      _errorText = null;
+    });
+    try {
+      final controller = widget.ref.read(salesControllerProvider.notifier);
+      final saved = widget.product == null
+          ? await controller.createProduct(preview)
+          : await controller.updateProduct(preview);
+      if (!mounted) return;
+      Navigator.of(context).pop(saved);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _errorText = '$error';
+      });
+    }
+  }
 }
 
 class _LabeledField extends StatelessWidget {
@@ -1371,12 +1585,14 @@ class _LabeledField extends StatelessWidget {
   final TextEditingController controller;
   final TextInputType? keyboardType;
   final ValueChanged<String> onChanged;
+  final bool enabled;
 
   const _LabeledField({
     required this.label,
     required this.controller,
     required this.onChanged,
     this.keyboardType,
+    this.enabled = true,
   });
 
   @override
@@ -1384,6 +1600,7 @@ class _LabeledField extends StatelessWidget {
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
+      enabled: enabled,
       onChanged: onChanged,
       decoration: InputDecoration(labelText: label),
     );

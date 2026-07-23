@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:model_viewer_plus/model_viewer_plus.dart';
 
 import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/app_tokens.dart';
+import '../../../../core/constants/app_constants.dart';
 import '../../data/sales_repository.dart';
 import '../widgets/product_visuals.dart';
 import '../widgets/sales_widgets.dart';
@@ -29,12 +31,7 @@ class Product3DPage extends ConsumerWidget {
       title: produto.nome,
       showBack: true,
       padding: EdgeInsets.zero,
-      actions: [
-        CircleIconButton(
-          icon: Icons.ios_share_outlined,
-          onPressed: () {},
-        ),
-      ],
+      actions: const [],
       body: Column(
         children: [
           Expanded(
@@ -79,11 +76,22 @@ class Product3DPage extends ConsumerWidget {
                     ),
                   ),
                 ),
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 26),
-                    child: ProductStagePreview(produto: produto),
-                  ),
+                Positioned.fill(
+                  top: 58,
+                  bottom: 38,
+                  child: produto.modelo3DPath == null
+                      ? Center(child: ProductStagePreview(produto: produto))
+                      : ModelViewer(
+                          src: AppConstants.resolveBackendUrl(
+                            produto.modelo3DPath!,
+                          ),
+                          alt: 'Modelo 3D de ${produto.nome}',
+                          ar: false,
+                          autoRotate: true,
+                          cameraControls: true,
+                          disableZoom: false,
+                          backgroundColor: Colors.transparent,
+                        ),
                 ),
                 const Positioned(
                   left: 0,
@@ -160,6 +168,15 @@ class Product3DPage extends ConsumerWidget {
                       : null,
                   icon: const Icon(Icons.receipt_long_outlined),
                   label: const Text('Vender este produto'),
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => context.pushNamed(
+                    AppRoutes.captureByProductName,
+                    pathParameters: {'produtoId': produto.id},
+                  ),
+                  icon: const Icon(Icons.add_a_photo_outlined),
+                  label: const Text('Gerar novo molde 3D'),
                 ),
               ],
             ),
