@@ -25,18 +25,31 @@ class HomeDashboardPage extends ConsumerWidget {
               icon: Icons.notifications_none_rounded,
               onPressed: () => context.pushNamed(AppRoutes.notificationsName),
             ),
-            Positioned(
-              right: 8,
-              top: 8,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: AppColors.accent,
-                  shape: BoxShape.circle,
+            if (data.notificacoesNaoLidas > 0)
+              Positioned(
+                right: -2,
+                top: -4,
+                child: Container(
+                  constraints:
+                      const BoxConstraints(minWidth: 20, minHeight: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 5),
+                  alignment: Alignment.center,
+                  decoration: const BoxDecoration(
+                    color: AppColors.accent,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    data.notificacoesNaoLidas > 99
+                        ? '99+'
+                        : '${data.notificacoesNaoLidas}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ],
@@ -232,6 +245,8 @@ class _QuickActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final productsWith3D =
+        data.produtos.where((product) => product.tem3D).toList();
     return Row(
       children: [
         Expanded(
@@ -260,10 +275,7 @@ class _QuickActions extends StatelessWidget {
             icon: Icons.camera_alt_outlined,
             color: AppColors.ink,
             bg: AppColors.bgSunken,
-            onTap: () => context.pushNamed(
-              AppRoutes.captureByProductName,
-              pathParameters: {'produtoId': data.produtos.first.id},
-            ),
+            onTap: () => context.pushNamed(AppRoutes.captureCameraName),
           ),
         ),
         const SizedBox(width: 9),
@@ -273,10 +285,12 @@ class _QuickActions extends StatelessWidget {
             icon: Icons.view_in_ar_outlined,
             color: AppColors.ink,
             bg: const Color(0xFFE9E0D0),
-            onTap: () => context.pushNamed(
-              AppRoutes.product3dName,
-              pathParameters: {'id': data.produtos.first.id},
-            ),
+            onTap: productsWith3D.isEmpty
+                ? () => context.goNamed(AppRoutes.productsName)
+                : () => context.pushNamed(
+                      AppRoutes.product3dName,
+                      pathParameters: {'id': productsWith3D.first.id},
+                    ),
           ),
         ),
       ],

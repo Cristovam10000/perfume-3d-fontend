@@ -7,6 +7,7 @@ import '../../../../app/theme/app_tokens.dart';
 import '../../../../core/utils/app_formatters.dart';
 import '../../data/sales_repository.dart';
 import '../../domain/sales_models.dart';
+import '../widgets/commercial_actions.dart';
 import '../widgets/sales_widgets.dart';
 
 class ClientsPage extends ConsumerStatefulWidget {
@@ -19,6 +20,7 @@ class ClientsPage extends ConsumerStatefulWidget {
 class _ClientsPageState extends ConsumerState<ClientsPage> {
   String _query = '';
   ClienteStatus? _filter;
+  bool _savingClient = false;
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +31,10 @@ class _ClientsPageState extends ConsumerState<ClientsPage> {
       title: 'Clientes',
       currentIndex: 1,
       actions: [
-        CircleIconButton(icon: Icons.add_rounded, onPressed: () {}),
+        CircleIconButton(
+          icon: _savingClient ? Icons.hourglass_top_rounded : Icons.add_rounded,
+          onPressed: _savingClient ? null : _createClient,
+        ),
       ],
       body: ListView(
         children: [
@@ -96,6 +101,30 @@ class _ClientsPageState extends ConsumerState<ClientsPage> {
         cliente.telefone.toLowerCase().contains(query);
     final matchesFilter = _filter == null || cliente.status == _filter;
     return matchesQuery && matchesFilter;
+  }
+
+  Future<void> _createClient() async {
+    final value = await showClientForm(context);
+    if (value == null || !mounted) return;
+    setState(() => _savingClient = true);
+    try {
+      await ref.read(salesControllerProvider.notifier).createClient(
+            nome: value.name,
+            telefone: value.phone,
+            bairro: value.neighborhood,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cliente cadastrado.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$error')),
+      );
+    } finally {
+      if (mounted) setState(() => _savingClient = false);
+    }
   }
 }
 

@@ -43,7 +43,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.saleNew,
         name: AppRoutes.saleNewName,
-        builder: (_, __) => const SaleWizardPage(),
+        builder: (_, state) => SaleWizardPage(
+          initialClientId: state.uri.queryParameters['clientId'],
+        ),
       ),
       GoRoute(
         path: AppRoutes.saleDetail,
@@ -73,12 +75,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: AppRoutes.captureByProduct,
         name: AppRoutes.captureByProductName,
-        builder: (_, __) => const CaptureViewsPage(),
+        builder: (_, state) => CaptureViewsPage(
+          productId: int.tryParse(state.pathParameters['produtoId'] ?? ''),
+        ),
       ),
       GoRoute(
         path: AppRoutes.processingByJob,
         name: AppRoutes.processingByJobName,
-        builder: (_, __) => const ProcessingStatusPage(),
+        builder: (_, state) => ProcessingStatusPage(
+          jobId: state.pathParameters['jobId'],
+        ),
       ),
       GoRoute(
         path: AppRoutes.notifications,
@@ -101,8 +107,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         redirect: (context, state) {
           // Mantida por compat — fluxo novo concentra captura e revisão na
           // mesma tela. Se não há nada capturado, redireciona pro grid.
-          final cardinals =
-              ref.read(captureControllerProvider).cardinalCount;
+          final cardinals = ref.read(captureControllerProvider).cardinalCount;
           if (cardinals == 0) return AppRoutes.captureCamera;
           return null;
         },

@@ -7,6 +7,7 @@ import '../../../../app/theme/app_tokens.dart';
 import '../../../../core/utils/app_formatters.dart';
 import '../../data/sales_repository.dart';
 import '../../domain/sales_models.dart';
+import '../widgets/commercial_actions.dart';
 import '../widgets/sales_widgets.dart';
 
 class ClientDetailPage extends ConsumerWidget {
@@ -135,15 +136,31 @@ class ClientDetailPage extends ConsumerWidget {
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: () => context.pushNamed(AppRoutes.saleNewName),
+                  key: const ValueKey('client-new-sale'),
+                  onPressed: () => context.pushNamed(
+                    AppRoutes.saleNewName,
+                    queryParameters: {'clientId': cliente.id},
+                  ),
                   icon: const Icon(Icons.add_shopping_cart_outlined),
                   label: const Text('Nova venda'),
                 ),
               ),
               const SizedBox(width: 10),
-              CircleIconButton(icon: Icons.phone_outlined, onPressed: () {}),
+              CircleIconButton(
+                icon: Icons.phone_outlined,
+                onPressed: () => _runExternalAction(
+                  context,
+                  () => openPhoneDialer(cliente),
+                ),
+              ),
               const SizedBox(width: 8),
-              CircleIconButton(icon: Icons.chat_outlined, onPressed: () {}),
+              CircleIconButton(
+                icon: Icons.chat_outlined,
+                onPressed: () => _runExternalAction(
+                  context,
+                  () => openWhatsAppConversation(client: cliente),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 24),
@@ -183,6 +200,20 @@ class ClientDetailPage extends ConsumerWidget {
           const SizedBox(height: 28),
         ],
       ),
+    );
+  }
+}
+
+Future<void> _runExternalAction(
+  BuildContext context,
+  Future<void> Function() action,
+) async {
+  try {
+    await action();
+  } catch (error) {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$error')),
     );
   }
 }

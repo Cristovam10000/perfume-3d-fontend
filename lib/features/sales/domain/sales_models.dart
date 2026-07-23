@@ -41,6 +41,34 @@ class Cliente {
     if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
     return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
   }
+
+  Cliente copyWith({
+    String? id,
+    String? nome,
+    String? telefone,
+    String? bairro,
+    int? score,
+    ClienteStatus? status,
+    double? emAberto,
+    int? totalCompras,
+    int? parcelasAtraso,
+    double? totalComprado,
+    SyncStatus? syncStatus,
+  }) {
+    return Cliente(
+      id: id ?? this.id,
+      nome: nome ?? this.nome,
+      telefone: telefone ?? this.telefone,
+      bairro: bairro ?? this.bairro,
+      score: score ?? this.score,
+      status: status ?? this.status,
+      emAberto: emAberto ?? this.emAberto,
+      totalCompras: totalCompras ?? this.totalCompras,
+      parcelasAtraso: parcelasAtraso ?? this.parcelasAtraso,
+      totalComprado: totalComprado ?? this.totalComprado,
+      syncStatus: syncStatus ?? this.syncStatus,
+    );
+  }
 }
 
 class Produto {
@@ -198,6 +226,30 @@ class Parcela {
 
   double get restante => (valor - valorPago).clamp(0, valor).toDouble();
   bool get estaAberta => status != ParcelaStatus.paga;
+
+  Parcela copyWith({
+    String? id,
+    String? vendaId,
+    double? valor,
+    DateTime? vencimento,
+    ParcelaStatus? status,
+    double? valorPago,
+    List<EventoParcela>? eventos,
+    SyncStatus? syncStatus,
+  }) {
+    return Parcela(
+      id: id ?? this.id,
+      vendaId: vendaId ?? this.vendaId,
+      numero: numero,
+      total: total,
+      valor: valor ?? this.valor,
+      vencimento: vencimento ?? this.vencimento,
+      status: status ?? this.status,
+      valorPago: valorPago ?? this.valorPago,
+      eventos: eventos ?? this.eventos,
+      syncStatus: syncStatus ?? this.syncStatus,
+    );
+  }
 }
 
 class Pagamento {
@@ -218,6 +270,22 @@ class Pagamento {
     this.observacoes,
     this.syncStatus = SyncStatus.synced,
   });
+
+  Pagamento copyWith({
+    String? id,
+    String? parcelaId,
+    SyncStatus? syncStatus,
+  }) {
+    return Pagamento(
+      id: id ?? this.id,
+      parcelaId: parcelaId ?? this.parcelaId,
+      data: data,
+      valor: valor,
+      forma: forma,
+      observacoes: observacoes,
+      syncStatus: syncStatus ?? this.syncStatus,
+    );
+  }
 }
 
 class EventoParcela {
@@ -254,6 +322,19 @@ class Notificacao {
     required this.valor,
     this.lida = false,
   });
+
+  Notificacao copyWith({bool? lida}) {
+    return Notificacao(
+      id: id,
+      clienteId: clienteId,
+      parcelaId: parcelaId,
+      tipo: tipo,
+      data: data,
+      texto: texto,
+      valor: valor,
+      lida: lida ?? this.lida,
+    );
+  }
 }
 
 class ParcelaResumo {
@@ -286,6 +367,19 @@ class SalesSnapshot {
     required this.pagamentos,
     required this.notificacoes,
   });
+
+  factory SalesSnapshot.empty({DateTime? today}) {
+    final now = today ?? DateTime.now();
+    return SalesSnapshot(
+      hoje: DateTime(now.year, now.month, now.day),
+      clientes: const [],
+      produtos: const [],
+      vendas: const [],
+      parcelas: const [],
+      pagamentos: const [],
+      notificacoes: const [],
+    );
+  }
 
   SalesSnapshot copyWith({
     DateTime? hoje,
@@ -387,6 +481,12 @@ class SalesSnapshot {
         0,
         (total, produto) => total + produto.precoBase * produto.estoque,
       );
+
+  int get produtosSemCusto =>
+      produtos.where((produto) => produto.custo <= 0).length;
+
+  int get notificacoesNaoLidas =>
+      notificacoes.where((notificacao) => !notificacao.lida).length;
 
   List<Produto> get produtosSemEstoque =>
       produtos.where((produto) => produto.estoque <= 0).toList();
