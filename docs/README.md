@@ -41,8 +41,8 @@ O projeto evoluiu: ele nao e mais apenas uma jornada linear de captura 3D. A tel
 
 - Caminhos sao relativos a raiz do repositorio `perfume-3d-frontend/`.
 - O codigo Dart e a fonte canonica; quando houver divergencia, atualize os docs.
-- A feature `sales` inicia com dados de demonstracao, restaura o snapshot local quando disponivel e tenta sincronizar com `/sales/*`; se o backend falhar, continua com o estado local/mockado.
-- A documentacao evita prometer comportamento que ainda nao existe: cadastro real, persistencia, autenticacao e sincronizacao remota estao fora do estado atual.
+- A feature `sales` nao possui dados de demonstracao. Ela restaura somente dados reais/cacheados e operacoes criadas pelo usuario, persistidos em `shared_preferences`.
+- Escritas sem conexao entram em uma fila duravel e sao sincronizadas em ordem quando o backend volta; autenticacao e separacao multi-tenant continuam fora do estado atual.
 
 ## Como manter
 

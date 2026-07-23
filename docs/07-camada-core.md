@@ -45,7 +45,10 @@ Consumidores:
 - `CaptureRepositoryImpl`;
 - `ProcessingRepositoryImpl`.
 
-O modulo `sales` tambem usa Dio, mas cria um cliente proprio no `SalesController`, com timeouts menores e fallback para o snapshot local/mockado quando `/sales/*` nao responde.
+O modulo `sales` tambem usa Dio e `shared_preferences`. Nao ha dados de
+demonstracao: o fallback contem apenas o snapshot real e operacoes feitas pelo
+usuario. Falhas de conexao entram na outbox; erros de validacao do backend
+continuam sendo propagados.
 
 ## `utils/app_formatters.dart`
 

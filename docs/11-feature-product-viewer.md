@@ -106,7 +106,7 @@ O modulo `sales` tambem tem viewer 3D:
 
 - arquivo: [product_3d_page.dart](../lib/features/sales/presentation/pages/product_3d_page.dart);
 - rota: `/produto/:id/3d`;
-- fonte: `Produto.modelo3DPath` do snapshot mockado;
+- fonte: `Produto.modelo3DPath` recebido em `/sales/snapshot`;
 - `autoRotate: false`;
 - botao `Vender` para `sale-new`.
 

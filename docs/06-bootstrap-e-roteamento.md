@@ -69,7 +69,7 @@ As constantes ficam em [app_routes.dart](../lib/app/router/app_routes.dart).
 | `/produtos` | `products` | `ProductsPage` |
 | `/produto/:id/3d` | `product-3d` | `Product3DPage` |
 | `/captura/:produtoId` | `capture-by-product` | `CaptureViewsPage` |
-| `/processando/:jobId` | `processing-by-job` | `ProcessingStatusPage` |
+| `/processando/:jobId` | `processing-by-job` | `ProcessingStatusPage`, retomando o polling pelo `jobId`. |
 | `/notificacoes` | `notifications` | `NotificationsPage` |
 | `/capture/intro` | `capture-intro` | `CaptureIntroPage` |
 | `/capture/camera` | `capture-camera` | `CaptureViewsPage` |
@@ -79,7 +79,8 @@ As constantes ficam em [app_routes.dart](../lib/app/router/app_routes.dart).
 
 Observacoes importantes:
 
-- `/captura/:produtoId` ja existe para entrada a partir de produto, mas o `produtoId` ainda nao e repassado ao envio.
+- `/captura/:produtoId` repassa o identificador ao estado da captura e ao multipart
+  `POST /captures`; a rota sem produto continua sendo a captura avulsa.
 - `/processando/:jobId` ja existe, mas a tela nao reidrata o `ProcessingController` a partir do parametro.
 - A rota inicial `/` abre `HomeDashboardPage`, nao `features/home/HomePage`.
 
@@ -126,8 +127,8 @@ capture-intro -> capture-camera -> capture-review -> processing -> viewer
 
 Atalhos atuais:
 
-- dashboard "Capturar" chama `capture-by-product` com o primeiro produto mockado;
-- dashboard "3D" chama `product-3d` com o primeiro produto mockado;
+- dashboard "Capturar" abre a captura avulsa;
+- dashboard "3D" abre o primeiro produto com GLB vindo do banco ou direciona ao estoque quando nenhum existe;
 - `Product3DPage` tem botao "Vender" para `sale-new`.
 
 ## `go` vs `push`

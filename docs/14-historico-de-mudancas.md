@@ -60,7 +60,7 @@ Entraram:
 - produtos;
 - viewer 3D de produto;
 - notificacoes;
-- mock repository com `SalesSnapshot`.
+- mock repository com `SalesSnapshot` (implementacao historica, removida na fase atual).
 
 A rota inicial `/` passou a abrir `HomeDashboardPage`.
 
@@ -82,10 +82,21 @@ Isso reflete uso com aparelho fisico na mesma rede local.
 
 Esta revisao dos docs considera o codigo atual da arvore de trabalho, incluindo o modulo `sales` como experiencia principal e o pipeline de captura como modulo especializado.
 
+## Fase 7 - Remocao da massa ficticia
+
+O repositorio mock e todos os clientes, produtos, vendas e URLs 3D ficticios
+foram removidos do codigo de producao.
+
+## Fase 8 - Operacao comercial offline-first
+
+O app passou a persistir em `shared_preferences` somente dados reais e registros
+criados pelo usuario. Falhas de conexao entram em uma outbox duravel, sincronizada
+em ordem a cada 10 segundos. IDs locais de cliente, produto, venda e parcela sao
+remapeados para os IDs do PostgreSQL. A geracao 3D permanece online-only.
+
 ## Proximos passos naturais
 
-- Persistir vendas novas no repositorio ou em storage local.
-- Fazer `/captura/:produtoId` associar capturas ao produto.
-- Fazer `/processando/:jobId` iniciar polling pelo parametro da rota.
-- Trocar `MockSalesRepository` por API/SQLite quando o backend comercial existir.
+- Persistir automaticamente o job ativo para retomar o acompanhamento depois
+  de o aplicativo ser encerrado.
+- Acrescentar uma tela dedicada de diagnostico e resolucao de conflitos da outbox.
 - Adicionar permissoes nativas formais para camera/galeria antes de release.

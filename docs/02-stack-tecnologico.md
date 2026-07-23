@@ -60,7 +60,7 @@ O uso de OpenCV esta concentrado em [orb_similarity_tracker.dart](../lib/core/ut
 
 Ha dois usos:
 
-- [Product3DPage](../lib/features/sales/presentation/pages/product_3d_page.dart), para modelos do catalogo mockado.
+- [Product3DPage](../lib/features/sales/presentation/pages/product_3d_page.dart), para o GLB vinculado ao produto no banco.
 - [Product3DViewerPage](../lib/features/product_viewer/presentation/pages/product_3d_viewer_page.dart), para o modelo retornado pelo backend de captura.
 
 ### Localizacao, formatacao e fontes
@@ -106,7 +106,7 @@ flutter:
   uses-material-design: true
 ```
 
-Nao ha assets proprios versionados para imagens, modelos 3D, fontes ou JSON. Os cards de produto desenham uma arte simples em Flutter, e os modelos 3D usados no mock apontam para URLs.
+Nao ha assets proprios versionados para imagens, modelos 3D, fontes ou JSON. Os cards de produto desenham uma arte simples em Flutter, e as URLs dos modelos 3D chegam pelo backend.
 
 ## Resumo
 

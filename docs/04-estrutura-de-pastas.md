@@ -158,8 +158,8 @@ Contem a `HomePage` original do fluxo de captura. Ela ainda compila, mas nao e a
 Modulo principal da experiencia atual.
 
 - `domain/sales_models.dart`: modelos de cliente, produto, venda, parcela, pagamento, notificacao e snapshot.
-- `data/sales_repository.dart`: `SalesController`, `MockSalesRepository` e providers `salesControllerProvider` / `salesSnapshotProvider`.
-- `data/sales_local_storage*.dart`: persistencia em `localStorage` no Web e fallback em memoria nas demais plataformas.
+- `data/sales_repository.dart`: `SalesController`, integracao HTTP e providers `salesControllerProvider` / `salesSnapshotProvider`.
+- `data/sales_offline_store.dart`: persistencia duravel do snapshot real, fila e mapeamentos de IDs com `shared_preferences`.
 - `presentation/pages`: telas de dashboard, clientes, vendas, cobranca, produtos, viewer 3D de produto e notificacoes.
 - `presentation/widgets/sales_widgets.dart`: scaffold e componentes especificos do dominio comercial.
 
@@ -170,6 +170,7 @@ Detalhes em [18 - Feature `sales`](18-feature-sales.md).
 Modulo de captura guiada.
 
 - `CaptureController` guarda um mapa das quatro vistas cardeais, ate duas extras, upload e mensagens de cobertura.
+- `CaptureSessionStore` mantem um rascunho recuperavel e copia os JPEGs sem decodificar para a pasta privada do app.
 - `CaptureViewsPage` e a tela ativa de captura/revisao e usa camera ou galeria via `image_picker`.
 - `LiveCaptureController` e `CaptureCameraPage` permanecem como implementacao anterior de preview customizado, tilt e similaridade ORB.
 

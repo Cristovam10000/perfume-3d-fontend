@@ -6,10 +6,12 @@ Aplicativo Flutter desenvolvido para um TCC sobre venda de perfumes com visualiz
 
 - Dashboard de vendas, clientes, cobranças, produtos e notificações.
 - Wizard de venda com cálculo de entrada, parcelas e atualização de estoque.
-- Persistência local no navegador e sincronização HTTP *best-effort* com `/sales/*`.
+- Escritas comerciais confirmadas pelo backend, com bloqueio de toque duplo e erros recuperáveis.
+- Cadastro/edição de cliente e produto, pagamentos parciais/totais, renegociação e notificações.
 - Captura das quatro vistas cardeais do frasco e até duas imagens extras.
 - Upload para `POST /captures`, acompanhamento do processamento e visualização do GLB retornado.
 - Visualização de modelos 3D do catálogo com `model_viewer_plus`.
+- Captura vinculada ao produto e reabertura do GLB salvo no estoque.
 
 ## Stack
 
@@ -30,7 +32,7 @@ flutter run --dart-define=BACKEND_BASE_URL=http://localhost:8000
 
 Em um aparelho físico, substitua `localhost` pelo IP do computador na mesma rede. No Android Emulator, normalmente use `http://10.0.2.2:8000`.
 
-O módulo comercial continua utilizável com dados locais/de demonstração se o backend estiver indisponível. A geração 3D exige o backend `perfume-3d-backend` em execução.
+Os dados fictícios foram removidos. O módulo comercial mantém um snapshot e uma fila durável em `shared_preferences`: sem conexão, clientes, produtos, vendas, estoque, pagamentos e demais alterações ficam com status pendente e são enviados automaticamente a cada 10 segundos quando o backend volta. A geração 3D continua exigindo o backend em execução.
 
 ## Qualidade
 
@@ -39,7 +41,7 @@ flutter analyze
 flutter test
 ```
 
-Estado verificado em 2026-07-22: análise estática sem problemas e 3 testes aprovados.
+Estado verificado em 2026-07-23: análise estática sem problemas e **27 testes aprovados**.
 
 ## Documentação
 

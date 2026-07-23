@@ -3,7 +3,7 @@
 O backend cobre dois domínios:
 
 1. **Captura/processamento 3D** (`/captures/*`, `/files/*`) - sempre via HTTP.
-2. **Operação comercial** (`/sales/*`) - usado diretamente pelo `SalesController`; quando o backend nao responde, o estado local/mockado continua disponivel.
+2. **Operação comercial** (`/sales/*`) - usado pelo `SalesController`; falhas de conexão são persistidas em uma outbox, sem dados mockados.
 
 Os dois dominios usam a mesma URL de [AppConstants](../lib/core/constants/app_constants.dart). Captura/processamento usa o `dioClientProvider`; vendas cria um cliente Dio proprio com timeouts curtos e fallback local.
 
@@ -36,6 +36,7 @@ Multipart form-data:
 |---|---|---|
 | `images` | arquivo repetido | Fotos capturadas/selecionadas. |
 | `views` | string repetida, opcional | Rotulos paralelos: `front`, `left`, `back`, `right` ou `extra`. |
+| `productId` | inteiro, opcional | Produto comercial ao qual o GLB concluido deve ser vinculado. |
 
 O front monta:
 
@@ -48,6 +49,9 @@ final formMap = <String, dynamic>{
 };
 if (views != null && views.isNotEmpty) {
   formMap['views'] = views;
+}
+if (productId != null) {
+  formMap['productId'] = productId;
 }
 final formData = FormData.fromMap(formMap);
 ```
@@ -87,6 +91,7 @@ Usado por [processing_repository.dart](../lib/features/processing/data/processin
   "status": "processing",
   "message": "Gerando malha 3D...",
   "modelUrl": null,
+  "productId": 42,
   "error": null
 }
 ```
@@ -98,6 +103,7 @@ Campos:
 | `status` | string | recomendado | Estado do job. |
 | `message` | string/null | nao | Mensagem amigavel. |
 | `modelUrl` | string/null | quando completo | URL do modelo 3D. |
+| `productId` | inteiro/null | nao | Recupera o produto vinculado ao job. |
 | `error` | string/null | quando erro | Erro do backend. |
 
 Status aceitos pelo front:
@@ -116,20 +122,19 @@ Qualquer outro valor vira `idle`.
 {
   "status": "completed",
   "message": "Modelo pronto.",
-  "modelUrl": "http://localhost:8000/files/models/job-abc123.glb",
+  "modelUrl": "/files/models/job-abc123.glb",
+  "productId": 42,
   "error": null
 }
 ```
 
 ## Modelos 3D do catalogo
 
-Produtos mockados em [sales_repository.dart](../lib/features/sales/data/sales_repository.dart) podem ter `modelo3DPath`, por exemplo:
+Produtos recebidos de `/sales/snapshot` podem ter `modelo3DPath` relativo ou absoluto.
 
-```dart
-modelo3DPath: 'http://localhost:8000/files/models/demo-khamrah.glb'
-```
-
-Essas URLs nao passam por `Dio`; sao entregues diretamente ao `ModelViewer`. O device precisa conseguir acessa-las.
+Antes de chegar ao `ModelViewer`, URLs relativas sao resolvidas com
+`BACKEND_BASE_URL`; hosts `localhost`/`127.0.0.1` tambem sao trocados pelo host
+configurado. Assim o aparelho fisico usa o IP da maquina.
 
 ## Autenticacao
 
@@ -137,7 +142,7 @@ Nao ha autenticacao no front atual. Todas as chamadas presumem backend local ano
 
 ## Backend comercial - `/sales/*`
 
-Usado pelo `SalesController` em [sales_repository.dart](../lib/features/sales/data/sales_repository.dart), com fallback para o snapshot local/mockado quando offline. Todos os payloads usam camelCase convertido pelo Pydantic do backend.
+Usado pelo `SalesController` em [sales_repository.dart](../lib/features/sales/data/sales_repository.dart). O fallback offline guarda somente dados reais e operações do usuário. Todos os payloads usam camelCase convertido pelo Pydantic do backend.
 
 ### `GET /sales/snapshot`
 
@@ -174,6 +179,15 @@ Cria um produto novo. Body:
 
 Resposta `201 Created` com o `ProdutoOut` completo.
 
+`precoBase` e `custo` precisam ser maiores que zero.
+
+### Clientes e edicao comercial
+
+- `POST /sales/clients`: cria nome, telefone e bairro.
+- `PATCH /sales/clients/{id}`: edita os mesmos campos.
+- `PATCH /sales/products/{id}`: edita os dados comerciais; estoque permanece
+  no endpoint especifico.
+
 ### `PATCH /sales/products/{produtoId}/stock`
 
 Ajusta estoque. Body:
@@ -183,6 +197,14 @@ Ajusta estoque. Body:
 ```
 
 `mode` aceita `"add"` (incrementa) ou `"set"` (substitui). Resposta `200` com o produto atualizado, ou `404` se inexistente.
+
+### Recebimento, renegociacao e notificacoes
+
+- `POST /sales/installments/{id}/payments`: valor, data, forma, observacao e
+  `requestId`; aceita total/parcial e impede excesso ou duplicidade.
+- `PATCH /sales/installments/{id}/due-date`: altera parcela aberta e reagenda
+  seus avisos.
+- `PATCH /sales/notifications/{id}/read`: marca a notificacao como lida.
 
 ### `POST /sales/sales`
 
@@ -212,17 +234,18 @@ Erros de regra de negocio (cliente inativo, estoque insuficiente, total inconsis
 
 ### Sincronizacao e fallback
 
-A arquitetura real do `SalesController` ([sales_repository.dart:21](../lib/features/sales/data/sales_repository.dart)):
+O boot restaura o snapshot real e a outbox, tenta enviar as pendencias em ordem
+e depois carrega `GET /sales/snapshot`. Em falha de conexao:
 
-1. **Boot**: parte do snapshot `MockSalesRepository` (dados de exemplo), tenta `_restore()` do `localStorage` (`perfume_3d_sales_snapshot_v2`), e dispara `_loadRemote()` para sobrescrever com `GET /sales/snapshot`.
-2. **Escrita local imediata**: cada acao do usuario (criar produto, ajustar estoque, confirmar venda) atualiza o `StateNotifier` e o `localStorage` *antes* de chamar a API.
-3. **Sincronizacao best-effort**: depois da escrita local, dispara `_createRemoteProduct` / `_syncRemoteStock` / `_createRemoteSale`. Se a chamada Dio falhar (timeout 900ms / 3s, `SocketException`, etc), o `try/catch` engole o erro silenciosamente. **Nao ha outbox nem retry**: o estado local fica dessincronizado do backend ate o proximo `_loadRemote()` bem-sucedido.
-4. **`_isRemoteId` / `_canSyncSale`**: produtos criados offline tem id local (`p<n>`) e *nao* sincronizam ate o backend devolver um id remoto via `_loadRemote()`. Vendas com itens contendo apenas ids locais sao puladas pelo `_canSyncSale`.
+1. a alteração aparece com `SyncStatus.pending`;
+2. snapshot, operação e IDs locais são gravados em `shared_preferences`;
+3. o controller tenta novamente a cada 10 segundos;
+4. clientes e produtos são sincronizados antes das vendas que os referenciam;
+5. ao receber os IDs do PostgreSQL, todas as referências locais são remapeadas.
 
-Implicacoes praticas:
-
-- Apos o backend voltar a responder, o `_loadRemote()` do proximo boot **sobrescreve** o estado local — escritas feitas offline que nao foram sincronizadas sao **perdidas** (exceto se ja tinham id remoto).
-- Para um MVP de TCC isso e aceitavel. Producao real exigiria outbox + reconciliacao.
+Criações de cliente, produto e venda, renegociações e pagamentos enviam
+`requestId`. O backend mantém chaves únicas para que repetir uma operação não
+duplique registros. A captura/modelagem 3D não entra na outbox.
 
 Detalhes em [18 - Feature `sales`](18-feature-sales.md).
 

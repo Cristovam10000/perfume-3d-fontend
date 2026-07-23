@@ -55,8 +55,10 @@ Informe a URL sem alterar o codigo-fonte:
 flutter run --dart-define=BACKEND_BASE_URL=http://localhost:8000
 ```
 
-O modulo `sales` tenta carregar e sincronizar `/sales/*`, mas continua com o snapshot local/mockado quando o backend esta indisponivel. O backend e obrigatorio para:
+O modulo `sales` restaura o cache real e a fila offline, tenta `/sales/snapshot`
+e repete pendencias a cada 10 segundos. O backend e obrigatorio para:
 
+- sincronizar os registros comerciais com o PostgreSQL;
 - `POST /captures`;
 - `GET /captures/{jobId}/status`;
 - URLs de modelo usadas por `ModelViewer`, se apontarem para o servidor local.

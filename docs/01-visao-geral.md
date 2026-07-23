@@ -33,7 +33,7 @@ O modulo 3D continua resolvendo o problema original do TCC: orientar um usuario 
 5. **Detalhe da venda** - [SaleDetailPage](../lib/features/sales/presentation/pages/sale_detail_page.dart): total, progresso de pagamento, parcelas e itens vendidos.
 6. **Cobranca** - [BillingPage](../lib/features/sales/presentation/pages/billing_page.dart): abas para hoje, amanha e atraso.
 7. **Produtos** - [ProductsPage](../lib/features/sales/presentation/pages/products_page.dart): grid de produtos com preco e marcador 3D.
-8. **Produto 3D** - [Product3DPage](../lib/features/sales/presentation/pages/product_3d_page.dart): viewer 3D direto do catalogo mockado.
+8. **Produto 3D** - [Product3DPage](../lib/features/sales/presentation/pages/product_3d_page.dart): viewer do GLB vinculado ao produto no banco.
 9. **Notificacoes** - [NotificationsPage](../lib/features/sales/presentation/pages/notifications_page.dart): lembretes de cobranca.
 
 ### Jornada de captura 3D
@@ -53,7 +53,7 @@ O modulo 3D continua resolvendo o problema original do TCC: orientar um usuario 
 ## Dentro do escopo atual
 
 - App Flutter em pt-BR, com tema claro customizado.
-- Dashboard comercial iniciado com dados de demonstracao, persistencia local e sincronizacao HTTP *best-effort*.
+- Dashboard comercial preenchido por `/sales/snapshot` e pelo estado offline criado pelo usuario, sem massa ficticia.
 - Modelos de dominio para clientes, produtos, vendas, parcelas, pagamentos e notificacoes.
 - Wizard de venda com testes de widget.
 - Catalogo com visualizacao 3D quando `modelo3DPath` existe.
@@ -65,10 +65,8 @@ O modulo 3D continua resolvendo o problema original do TCC: orientar um usuario 
 ## Fora do escopo atual
 
 - Login, contas e permissoes de usuario.
-- Sincronizacao robusta com fila duravel, retry e resolucao de conflitos.
-- Persistencia duravel fora do Web para o fallback local.
-- Cadastro de cliente; cadastro de produto ja esta implementado.
-- Vinculo efetivo entre a rota de captura e o produto selecionado.
+- Resolucao multiusuario de conflitos; a fila atual e ordenada e single-tenant.
+- Autenticacao e separacao multi-tenant (o MVP continua local e single-tenant).
 - AR no viewer (`ar: false` no pipeline de captura).
 - Cache offline de modelos 3D.
 - Telemetria, crash reporting e analytics.

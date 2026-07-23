@@ -42,12 +42,14 @@ Campos:
 | `status` | Estado atual do processamento. |
 | `message` | Mensagem opcional do backend. |
 | `modelUrl` | URL do `.glb`/`.gltf` quando completo. |
-| `error` | Falha retornada ou gerada no front. |
+| `error` | Falha terminal retornada pelo backend. |
+| `pollingWarning` | Falha temporaria ao consultar o andamento; nao encerra o job. |
 
 Atalhos:
 
 - `isCompleted`;
 - `hasError`;
+- `hasPollingWarning`;
 - `parseStatus(String?)`.
 
 ## Data
@@ -72,7 +74,9 @@ ProcessingJob(
 )
 ```
 
-Erros de Dio viram `ProcessingException`.
+Erros de Dio viram `ProcessingException` com mensagens compreensiveis para
+timeout, conexao local, resposta HTTP, cancelamento e demais falhas. A resposta
+tambem e validada antes do mapeamento.
 
 ## State
 
@@ -82,6 +86,7 @@ Responsabilidades:
 
 - `start(jobId)`: define estado `uploaded` e inicia polling;
 - `_poll()`: chama repositorio e atualiza estado;
+- `pollNow()`: permite uma consulta manual imediata;
 - `retry()`: limpa erro e reinicia polling;
 - `reset()`: cancela timer e volta para estado inicial.
 
@@ -92,7 +97,13 @@ Timer.periodic(AppConstants.processingPollInterval, (_) => _poll());
 _poll(); // primeira consulta imediata
 ```
 
-O timer para quando o status chega em `completed` ou `error`.
+O controller impede consultas simultaneas e ignora respostas atrasadas de um
+job anterior. O timer para somente quando o backend informa `completed` ou
+`error`.
+
+Uma falha isolada de rede nao transforma o job em `error`: o estado atual e
+preservado, `pollingWarning` explica que o backend pode continuar processando e
+o timer tenta novamente. Uma resposta valida seguinte remove o aviso.
 
 ## UI
 
@@ -105,8 +116,9 @@ Mostra:
 - `jobId`, quando existe;
 - barra de progresso enquanto nao finaliza;
 - mensagem do backend, erro ou mensagem padrao;
+- aviso de reconexao e botao `Consultar agora` quando uma consulta falha;
 - botao `Visualizar modelo 3D` quando `completed` e `modelUrl != null`;
-- botoes `Tentar novamente` e `Voltar ao inicio` em erro.
+- botoes `Revisar e reenviar` e `Voltar ao inicio` em erro terminal.
 
 Ao visualizar:
 
@@ -120,7 +132,7 @@ context.goNamed(AppRoutes.viewerName);
 | Rota | Estado atual |
 |---|---|
 | `/processing` | usada pelo fluxo de captura. |
-| `/processando/:jobId` | existe para fluxo por produto/job, mas ainda nao usa o parametro para iniciar polling. |
+| `/processando/:jobId` | inicia ou retoma o polling usando o parametro da rota. |
 
 ## Proxima leitura
 

@@ -11,9 +11,9 @@ salesSnapshotProvider
    v
 salesControllerProvider
    |
-   +-- MockSalesRepository (estado inicial)
-   +-- SalesLocalStorage (restore/persist)
-   +-- GET /sales/snapshot (best-effort)
+   +-- shared_preferences (snapshot real + outbox + mapa de IDs)
+   +-- GET /sales/snapshot (estado confirmado no PostgreSQL)
+   +-- retry da outbox a cada 10 segundos
    |
    v
 SalesSnapshot
@@ -191,10 +191,12 @@ O botao `Concluir` reseta `processingControllerProvider` e `viewerControllerProv
 
 ## Lacunas conscientes
 
-- `/captura/:produtoId` nao associa as imagens ao produto.
-- `/processando/:jobId` nao inicia polling a partir do parametro.
-- O fallback persiste em `localStorage` somente no Web; nas demais plataformas usa memoria do processo.
-- A sincronizacao remota e *best-effort* e nao possui fila duravel de retry ou resolucao de conflitos.
+- `/captura/:produtoId` associa o job e o GLB ao produto; a captura avulsa omite o campo.
+- `/processando/:jobId` inicia ou retoma o polling a partir do parametro.
+- Nao ha snapshot mockado. Sem backend, o app mostra somente dados reais
+  cacheados e registros criados pelo usuario.
+- A fila offline e duravel, ordenada e idempotente; nao ha resolucao
+  multiusuario de conflitos.
 
 ## Proxima leitura
 

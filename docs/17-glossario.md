@@ -20,7 +20,7 @@ Parte do pagamento de uma venda. Pode estar `paga`, `pendente`, `atrasada` ou `p
 
 ### Score
 
-Indicador visual de confiabilidade do cliente. No mock, e um numero de 0 a 100 usado para cor/status.
+Indicador visual de confiabilidade do cliente. E um numero de 0 a 100 calculado e devolvido pelo backend para cor/status.
 
 ### `SyncStatus`
 
@@ -28,7 +28,7 @@ Estado visual de sincronizacao: `synced`, `pending` ou `failed`. Hoje nao ha sin
 
 ### `SalesSnapshot`
 
-Objeto imutavel que agrupa listas mockadas e getters calculados para as telas comerciais.
+Objeto imutavel que agrupa as listas recebidas de `/sales/snapshot` e getters calculados para as telas comerciais.
 
 ## Flutter e arquitetura
 

@@ -6,7 +6,7 @@ O projeto segue uma organizacao **feature-first**. Cada feature concentra modelo
 
 Ha dois estilos convivendo:
 
-- `sales`: modulo comercial com `SalesController`, snapshot local/mockado e sincronizacao HTTP *best-effort*.
+- `sales`: modulo comercial com `SalesController`, fallback de leitura e escritas backend-first.
 - `product_capture` / `processing` / `product_viewer`: pipeline 3D com camadas mais classicas de domain, data e presentation.
 
 ## Camadas
@@ -24,7 +24,7 @@ Modelos puros de negocio:
 
 Repositorios e acesso externo:
 
-- `SalesController`: restaura/persiste o snapshot disponivel e sincroniza `/sales/*`; `MockSalesRepository` fornece os dados iniciais.
+- `SalesController`: restaura o estado real local, sincroniza uma outbox ordenada e carrega `/sales/snapshot`.
 - `CaptureRepository`: `POST /captures`.
 - `ProcessingRepository`: `GET /captures/{jobId}/status`.
 - `ViewerRepository`: placeholder que retorna `ProductModel(modelUrl: url)`.
@@ -41,7 +41,7 @@ No modulo comercial, varias telas usam estado local (`StatefulWidget`) para filt
 |---|---|---|
 | `appRouterProvider` | `Provider<GoRouter>` | Rotas e guards. |
 | `dioClientProvider` | `Provider<Dio>` | Cliente HTTP configurado. |
-| `salesControllerProvider` | `StateNotifierProvider<SalesController, SalesSnapshot>` | Estado comercial, persistencia e sincronizacao. |
+| `salesControllerProvider` | `StateNotifierProvider<SalesController, SalesSnapshot>` | Estado comercial confirmado pelo backend. |
 | `salesSnapshotProvider` | `Provider<SalesSnapshot>` | Snapshot observado pelas telas comerciais. |
 | `captureRepositoryProvider` | `Provider<CaptureRepository>` | Upload das imagens. |
 | `captureControllerProvider` | `StateNotifierProvider` | Vistas cardeais, extras, upload e erros. |
@@ -60,7 +60,7 @@ Use quando o estado precisa atravessar telas ou representar uma dependencia comp
 - imagens capturadas;
 - status do processamento;
 - modelo carregado no viewer;
-- snapshot comercial local/remoto;
+- snapshot comercial recebido do backend;
 - clientes HTTP e repositorios.
 
 ### Local via `StatefulWidget`
@@ -94,7 +94,9 @@ As rotas comerciais ainda nao tem guards de existencia fortes. Quando um id nao 
 
 ## Fluxo comercial
 
-`salesSnapshotProvider` retorna um `SalesSnapshot` imutavel. O controller inicia com dados de demonstracao, restaura o snapshot local e tenta carregar `/sales/snapshot`:
+`salesSnapshotProvider` retorna um `SalesSnapshot` imutavel. Nao existe fonte
+mockada: o controller restaura apenas o cache e as operacoes do usuario, tenta
+sincronizar a fila e entao carrega `/sales/snapshot`:
 
 - `clientesById`, `produtosById`, `vendasById`;
 - `parcelasResumo`;
@@ -102,7 +104,7 @@ As rotas comerciais ainda nao tem guards de existencia fortes. Quando um id nao 
 - `topPagadores`;
 - totais financeiros.
 
-O wizard confirma a `Venda` no `SalesController`, atualiza estoque, persiste o snapshot disponivel e tenta sincronizar com `/sales/sales`. `GoRouter.extra` transporta a venda apenas para abrir o detalhe imediatamente.
+O wizard envia a `Venda` ao `SalesController`; somente depois do sucesso de `/sales/sales` atualiza o estado e abre o detalhe.
 
 ## Fluxo 3D
 
