@@ -429,6 +429,19 @@ class SalesSnapshot {
     }).toList();
   }
 
+  /// Parcelas da mesma venda posteriores a [parcela] que ainda podem ter o
+  /// vencimento recalculado. Parcelas anteriores e ja pagas ficam de fora.
+  List<Parcela> parcelasSeguintes(Parcela parcela) {
+    final following = parcelas
+        .where((item) =>
+            item.vendaId == parcela.vendaId &&
+            item.numero > parcela.numero &&
+            item.status != ParcelaStatus.paga)
+        .toList()
+      ..sort((a, b) => a.numero.compareTo(b.numero));
+    return following;
+  }
+
   List<ParcelaResumo> get vencemHoje => parcelasResumo
       .where((item) =>
           item.parcela.estaAberta && _sameDate(item.parcela.vencimento, hoje))

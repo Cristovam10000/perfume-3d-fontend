@@ -3,7 +3,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../app/theme/app_tokens.dart';
 import '../../../../core/errors/app_exception.dart';
+import '../../../../core/utils/app_formatters.dart';
+import '../../../../core/utils/date_math.dart';
 import '../../domain/sales_models.dart';
+
+/// Limite superior dos seletores de data: o usuario precisa poder remarcar um
+/// vencimento ou uma previsao de recebimento para o futuro.
+DateTime _datePickerLastDate() =>
+    DateTime(DateTime.now().year + 10, DateTime.now().month, 1);
 
 class ClientFormValue {
   final String name;
@@ -125,7 +132,8 @@ Future<PaymentFormValue?> showPaymentForm(
   );
   final notes = TextEditingController();
   final key = GlobalKey<FormState>();
-  var date = DateTime.now();
+  // A data parte do vencimento cadastrado da parcela, nao do dia de hoje.
+  var date = dateOnly(installment.vencimento);
   var method = 'Pix';
 
   return showModalBottomSheet<PaymentFormValue>(
@@ -191,18 +199,18 @@ Future<PaymentFormValue?> showPaymentForm(
                 const SizedBox(height: 12),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Data do pagamento'),
-                  subtitle: Text(
-                    '${date.day.toString().padLeft(2, '0')}/'
-                    '${date.month.toString().padLeft(2, '0')}/${date.year}',
-                  ),
+                  title: const Text('Data do recebimento'),
+                  subtitle: Text(AppFormatters.numericDate(date)),
                   trailing: const Icon(Icons.calendar_month_outlined),
                   onTap: () async {
                     final selected = await showDatePicker(
                       context: context,
                       initialDate: date,
                       firstDate: DateTime(2020),
-                      lastDate: DateTime.now(),
+                      // Datas futuras sao validas: o vencimento da parcela
+                      // pode estar a frente do dia de hoje.
+                      lastDate: _datePickerLastDate(),
+                      helpText: 'Data do recebimento',
                     );
                     if (selected != null) setState(() => date = selected);
                   },
@@ -247,21 +255,85 @@ Future<DateTime?> showRenegotiationDate(
   BuildContext context, {
   required Parcela installment,
 }) {
-  final tomorrow = DateTime.now().add(const Duration(days: 1));
-  final initial = installment.vencimento.isAfter(tomorrow)
-      ? installment.vencimento
-      : tomorrow;
+  final today = dateOnly(DateTime.now());
+  final due = dateOnly(installment.vencimento);
+  // Abre no vencimento cadastrado; se ele ja passou, cai no dia de hoje para
+  // respeitar o piso do seletor.
+  final initial = due.isBefore(today) ? today : due;
   return showDatePicker(
     context: context,
     initialDate: initial,
-    firstDate: DateTime(
-      DateTime.now().year,
-      DateTime.now().month,
-      DateTime.now().day,
-    ),
-    lastDate: DateTime.now().add(const Duration(days: 3650)),
+    firstDate: today,
+    lastDate: _datePickerLastDate(),
     helpText: 'Novo vencimento',
   );
+}
+
+/// Pergunta se as parcelas seguintes devem acompanhar a nova data.
+///
+/// Retorna `true` para recalcular as proximas, `false` para manter como estao
+/// e `null` quando o usuario dispensa o dialogo.
+Future<bool?> confirmShiftFollowingInstallments(
+  BuildContext context, {
+  required int following,
+}) {
+  return showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title:
+          const Text('Deseja alterar também as datas das parcelas seguintes?'),
+      content: Text(
+        following == 1
+            ? 'A próxima parcela em aberto passa a vencer um mês depois da '
+                'nova data. Parcelas anteriores e já pagas não mudam.'
+            : 'As $following próximas parcelas em aberto passam a vencer com '
+                'um mês de intervalo a partir da nova data. Parcelas '
+                'anteriores e já pagas não mudam.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Manter as próximas parcelas'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogContext, true),
+          child: const Text('Alterar as próximas parcelas'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Executa uma acao comercial mostrando erro com retry no `ScaffoldMessenger`.
+///
+/// Retorna `true` quando a operacao terminou sem excecao.
+Future<bool> runSalesAction(
+  BuildContext context,
+  Future<void> Function() operation, {
+  String? success,
+}) async {
+  try {
+    await operation();
+    if (!context.mounted) return true;
+    if (success != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(success)),
+      );
+    }
+    return true;
+  } catch (error) {
+    if (!context.mounted) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$error'),
+        action: SnackBarAction(
+          label: 'Tentar novamente',
+          onPressed: () => runSalesAction(context, operation, success: success),
+        ),
+      ),
+    );
+    return false;
+  }
 }
 
 Future<void> openWhatsAppCollection({

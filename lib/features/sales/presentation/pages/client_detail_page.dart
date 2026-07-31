@@ -8,6 +8,7 @@ import '../../../../core/utils/app_formatters.dart';
 import '../../data/sales_repository.dart';
 import '../../domain/sales_models.dart';
 import '../widgets/commercial_actions.dart';
+import '../widgets/sale_actions_menu.dart';
 import '../widgets/sales_widgets.dart';
 
 class ClientDetailPage extends ConsumerWidget {
@@ -35,7 +36,13 @@ class ClientDetailPage extends ConsumerWidget {
     return SalesScaffold(
       showBack: true,
       actions: [
-        CircleIconButton(icon: Icons.more_horiz, onPressed: () {}),
+        // Mesmas acoes da visualizacao da venda, sem `Ver cliente` porque a
+        // tela ja e a do cliente.
+        SaleActionsButton(
+          client: cliente,
+          installments: parcelas.map((item) => item.parcela).toList(),
+          allowViewClient: false,
+        ),
       ],
       body: ListView(
         children: [
@@ -103,13 +110,9 @@ class ClientDetailPage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 14),
-          GridView.count(
-            crossAxisCount: 2,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 2.15,
+          // Sem GridView de proporcao fixa: a altura acompanha o texto, que
+          // pode ocupar duas linhas em telas menores ou com fonte ampliada.
+          _StatRow(
             children: [
               _StatCard(
                   label: 'Em aberto',
@@ -119,6 +122,11 @@ class ClientDetailPage extends ConsumerWidget {
                   label: 'Compras',
                   value: '${cliente.totalCompras}',
                   tone: ClienteStatus.good),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _StatRow(
+            children: [
               _StatCard(
                   label: 'Atrasos',
                   value: '${cliente.parcelasAtraso}',
@@ -142,7 +150,11 @@ class ClientDetailPage extends ConsumerWidget {
                     queryParameters: {'clientId': cliente.id},
                   ),
                   icon: const Icon(Icons.add_shopping_cart_outlined),
-                  label: const Text('Nova venda'),
+                  label: const Text(
+                    'Nova venda',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -167,6 +179,7 @@ class ClientDetailPage extends ConsumerWidget {
           const SectionHeader(title: 'Linha do tempo'),
           const SizedBox(height: 8),
           Card(
+            clipBehavior: Clip.antiAlias,
             child: Column(
               children: [
                 for (final venda in vendas) ...[
@@ -176,6 +189,8 @@ class ClientDetailPage extends ConsumerWidget {
                     title: 'Venda #${venda.id}',
                     subtitle: AppFormatters.date(venda.data),
                     value: venda.total,
+                    // Abre a visualizacao da venda (nao o fluxo de criacao).
+                    onTap: () => _openSale(context, venda.id),
                   ),
                   const Divider(height: 1, color: AppColors.line),
                 ],
@@ -193,6 +208,7 @@ class ClientDetailPage extends ConsumerWidget {
                       item.parcela.vencimento,
                     ),
                     value: item.parcela.restante,
+                    onTap: () => _openSale(context, item.venda.id),
                   ),
               ],
             ),
@@ -202,6 +218,13 @@ class ClientDetailPage extends ConsumerWidget {
       ),
     );
   }
+}
+
+void _openSale(BuildContext context, String saleId) {
+  context.pushNamed(
+    AppRoutes.saleDetailName,
+    pathParameters: {'id': saleId},
+  );
 }
 
 Future<void> _runExternalAction(
@@ -214,6 +237,28 @@ Future<void> _runExternalAction(
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$error')),
+    );
+  }
+}
+
+/// Par de cards de metrica com a mesma altura, sem proporcao fixa.
+class _StatRow extends StatelessWidget {
+  final List<Widget> children;
+
+  const _StatRow({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i != 0) const SizedBox(width: 10),
+            Expanded(child: children[i]),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -232,6 +277,7 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      constraints: const BoxConstraints(minHeight: 74),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.bgElev,
@@ -241,9 +287,12 @@ class _StatCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             label.toUpperCase(),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: const TextStyle(
               color: AppColors.ink3,
               fontSize: 11,
@@ -252,14 +301,17 @@ class _StatCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: statusColor(tone),
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: TextStyle(
+                color: statusColor(tone),
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
         ],
@@ -274,6 +326,7 @@ class _TimelineRow extends StatelessWidget {
   final String title;
   final String subtitle;
   final double value;
+  final VoidCallback? onTap;
 
   const _TimelineRow({
     required this.icon,
@@ -281,43 +334,64 @@ class _TimelineRow extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.value,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(AppRadius.md),
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(AppRadius.md),
+              ),
+              child: Icon(icon, color: color, size: 20),
             ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title,
-                    style: const TextStyle(fontWeight: FontWeight.w800)),
-                Text(
-                  subtitle,
-                  style: const TextStyle(
-                    color: AppColors.ink3,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Ids locais de venda sao longos: uma linha com reticencias
+                  // evita empurrar a linha do tempo para fora da tela.
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
-                ),
-              ],
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: AppColors.ink3,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-          MoneyText(value: value, size: 13),
-        ],
+            const SizedBox(width: 8),
+            MoneyText(value: value, size: 13),
+            if (onTap != null) ...[
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: AppColors.ink3,
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

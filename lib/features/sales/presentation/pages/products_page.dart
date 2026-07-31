@@ -534,8 +534,11 @@ class _DashedAddButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.lg),
       child: Container(
-        height: 68,
+        // Altura minima e rotulo flexivel: com fonte ampliada o botao cresce
+        // em vez de estourar a largura.
+        constraints: const BoxConstraints(minHeight: 68),
         alignment: Alignment.center,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: AppColors.bgElev.withValues(alpha: 0.72),
           borderRadius: BorderRadius.circular(AppRadius.lg),
@@ -546,12 +549,16 @@ class _DashedAddButton extends StatelessWidget {
           children: [
             Icon(Icons.add_rounded, color: AppColors.ink),
             SizedBox(width: 10),
-            Text(
-              'Cadastrar novo produto',
-              style: TextStyle(
-                color: AppColors.ink,
-                fontSize: 16,
-                fontWeight: FontWeight.w900,
+            Flexible(
+              child: Text(
+                'Cadastrar novo produto',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: AppColors.ink,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
             ),
           ],
@@ -591,89 +598,94 @@ Future<void> _showProductActionsSheet(
                 bottom: 20 + MediaQuery.viewInsetsOf(modalContext).bottom,
                 top: 18,
               ),
-              child: AnimatedSize(
-                duration: const Duration(milliseconds: 180),
-                child: switch (mode) {
-                  _SheetMode.actions => _ProductActionsContent(
-                      produto: produto,
-                      onClose: () => Navigator.of(sheetContext).pop(),
-                      onRestock: () => setSheetState(
-                        () => mode = _SheetMode.restock,
+              // Rola quando o conteudo (ou a fonte do sistema) passa da altura
+              // disponivel, em vez de estourar o limite da folha.
+              child: SingleChildScrollView(
+                child: AnimatedSize(
+                  duration: const Duration(milliseconds: 180),
+                  child: switch (mode) {
+                    _SheetMode.actions => _ProductActionsContent(
+                        produto: produto,
+                        onClose: () => Navigator.of(sheetContext).pop(),
+                        onRestock: () => setSheetState(
+                          () => mode = _SheetMode.restock,
+                        ),
+                        onAdjust: () => setSheetState(
+                          () => mode = _SheetMode.adjust,
+                        ),
+                        onEdit: () => Navigator.of(sheetContext)
+                            .pop(_ProductSheetAction.edit),
+                        onGenerate3D: () => Navigator.of(sheetContext)
+                            .pop(_ProductSheetAction.generate3D),
+                        on3D: produto.tem3D
+                            ? () => Navigator.of(sheetContext)
+                                .pop(_ProductSheetAction.view3D)
+                            : null,
                       ),
-                      onAdjust: () => setSheetState(
-                        () => mode = _SheetMode.adjust,
-                      ),
-                      onEdit: () => Navigator.of(sheetContext)
-                          .pop(_ProductSheetAction.edit),
-                      onGenerate3D: () => Navigator.of(sheetContext)
-                          .pop(_ProductSheetAction.generate3D),
-                      on3D: produto.tem3D
-                          ? () => Navigator.of(sheetContext)
-                              .pop(_ProductSheetAction.view3D)
-                          : null,
-                    ),
-                  _SheetMode.restock => _RestockContent(
-                      produto: produto,
-                      amount: restockAmount,
-                      onAmountChanged: (value) => setSheetState(
-                        () => restockAmount = value.clamp(1, 9999).toInt(),
-                      ),
-                      onBack: () => setSheetState(
-                        () => mode = _SheetMode.actions,
-                      ),
-                      onSave: () async {
-                        if (saving) return;
-                        setSheetState(() => saving = true);
-                        try {
-                          await ref
-                              .read(salesControllerProvider.notifier)
-                              .restockProduct(produto.id, restockAmount);
-                          if (!sheetContext.mounted) return;
-                          Navigator.of(sheetContext).pop();
-                        } catch (error) {
-                          if (!sheetContext.mounted) return;
-                          setSheetState(() => saving = false);
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('$error')),
-                            );
-                          }
-                        }
-                      },
-                    ),
-                  _SheetMode.adjust => _AdjustContent(
-                      produto: produto,
-                      quantity: adjustedQuantity,
-                      onQuantityChanged: (value) => setSheetState(
-                        () => adjustedQuantity = value.clamp(0, 999999).toInt(),
-                      ),
-                      onBack: () => setSheetState(
-                        () => mode = _SheetMode.actions,
-                      ),
-                      onSave: () async {
-                        if (saving) return;
-                        setSheetState(() => saving = true);
-                        try {
-                          await ref
-                              .read(salesControllerProvider.notifier)
-                              .adjustProductStock(
-                                produto.id,
-                                adjustedQuantity,
+                    _SheetMode.restock => _RestockContent(
+                        produto: produto,
+                        amount: restockAmount,
+                        onAmountChanged: (value) => setSheetState(
+                          () => restockAmount = value.clamp(1, 9999).toInt(),
+                        ),
+                        onBack: () => setSheetState(
+                          () => mode = _SheetMode.actions,
+                        ),
+                        onSave: () async {
+                          if (saving) return;
+                          setSheetState(() => saving = true);
+                          try {
+                            await ref
+                                .read(salesControllerProvider.notifier)
+                                .restockProduct(produto.id, restockAmount);
+                            if (!sheetContext.mounted) return;
+                            Navigator.of(sheetContext).pop();
+                          } catch (error) {
+                            if (!sheetContext.mounted) return;
+                            setSheetState(() => saving = false);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('$error')),
                               );
-                          if (!sheetContext.mounted) return;
-                          Navigator.of(sheetContext).pop();
-                        } catch (error) {
-                          if (!sheetContext.mounted) return;
-                          setSheetState(() => saving = false);
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('$error')),
-                            );
+                            }
                           }
-                        }
-                      },
-                    ),
-                },
+                        },
+                      ),
+                    _SheetMode.adjust => _AdjustContent(
+                        produto: produto,
+                        quantity: adjustedQuantity,
+                        onQuantityChanged: (value) => setSheetState(
+                          () =>
+                              adjustedQuantity = value.clamp(0, 999999).toInt(),
+                        ),
+                        onBack: () => setSheetState(
+                          () => mode = _SheetMode.actions,
+                        ),
+                        onSave: () async {
+                          if (saving) return;
+                          setSheetState(() => saving = true);
+                          try {
+                            await ref
+                                .read(salesControllerProvider.notifier)
+                                .adjustProductStock(
+                                  produto.id,
+                                  adjustedQuantity,
+                                );
+                            if (!sheetContext.mounted) return;
+                            Navigator.of(sheetContext).pop();
+                          } catch (error) {
+                            if (!sheetContext.mounted) return;
+                            setSheetState(() => saving = false);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('$error')),
+                              );
+                            }
+                          }
+                        },
+                      ),
+                  },
+                ),
               ),
             ),
           );
@@ -777,30 +789,33 @@ class _ProductActionsContent extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 24),
-        Row(
-          children: [
-            Expanded(
-              child: _ProductMetric(
-                label: 'Em estoque',
-                value: '${produto.estoque}',
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _ProductMetric(
+                  label: 'Em estoque',
+                  value: '${produto.estoque}',
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ProductMetric(
-                label: 'Minimo',
-                value: '${produto.estoqueMinimo}',
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ProductMetric(
+                  label: 'Minimo',
+                  value: '${produto.estoqueMinimo}',
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _ProductMetric(
-                label: 'Custo',
-                value: AppFormatters.brl(produto.custo),
-                compact: true,
+              const SizedBox(width: 10),
+              Expanded(
+                child: _ProductMetric(
+                  label: 'Custo',
+                  value: AppFormatters.brl(produto.custo),
+                  compact: true,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         const SizedBox(height: 20),
         _SheetActionButton(
@@ -1059,8 +1074,10 @@ class _ProductMetric extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Altura minima em vez de fixa: com fonte ampliada o card cresce junto do
+    // conteudo em vez de estourar.
     return Container(
-      height: 92,
+      constraints: const BoxConstraints(minHeight: 92),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.bgTint,
@@ -1068,6 +1085,7 @@ class _ProductMetric extends StatelessWidget {
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             label.toUpperCase(),
@@ -1080,15 +1098,18 @@ class _ProductMetric extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            value,
-            maxLines: compact ? 2 : 1,
-            textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: AppColors.ink,
-              fontSize: compact ? 15 : 24,
-              fontWeight: FontWeight.w900,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              maxLines: compact ? 2 : 1,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: AppColors.ink,
+                fontSize: compact ? 15 : 24,
+                fontWeight: FontWeight.w900,
+              ),
             ),
           ),
         ],
