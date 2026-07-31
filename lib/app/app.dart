@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'router/app_router.dart';
@@ -14,6 +15,14 @@ class PerfumeApp extends ConsumerWidget {
       title: 'Perfume 3D MVP',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
+      // Sem os delegates o Material cai no ingles (date picker, dialogs).
+      locale: const Locale('pt', 'BR'),
+      supportedLocales: const [Locale('pt', 'BR')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       routerConfig: router,
     );
   }

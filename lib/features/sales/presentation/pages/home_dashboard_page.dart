@@ -94,16 +94,20 @@ class HomeDashboardPage extends ConsumerWidget {
           const SizedBox(height: 10),
           const SectionHeader(title: 'Top pagadores'),
           const SizedBox(height: 8),
-          SizedBox(
-            height: 118,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: data.topPagadores.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 10),
-              itemBuilder: (context, index) {
-                final cliente = data.topPagadores[index];
-                return _TopPayerCard(index: index, cliente: cliente);
-              },
+          // Altura vinda do conteudo (IntrinsicHeight) em vez de fixa: com a
+          // fonte do sistema ampliada o card cresce sem estourar.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < data.topPagadores.length; i++) ...[
+                    if (i != 0) const SizedBox(width: 10),
+                    _TopPayerCard(index: i, cliente: data.topPagadores[i]),
+                  ],
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 110),
@@ -131,7 +135,7 @@ class _HomeTitle extends StatelessWidget {
           ),
         ),
         Text(
-          'Dona Marli',
+          'Raimunda',
           style: TextStyle(
             color: AppColors.ink,
             fontSize: 22,
@@ -365,6 +369,7 @@ class _TopPayerCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             '#${index + 1}',
@@ -374,7 +379,7 @@ class _TopPayerCard extends StatelessWidget {
               fontSize: 18,
             ),
           ),
-          const Spacer(),
+          const SizedBox(height: 18),
           Text(
             cliente.nome,
             maxLines: 2,
