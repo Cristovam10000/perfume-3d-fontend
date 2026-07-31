@@ -56,7 +56,9 @@ Centraliza formatacao pt-BR:
 
 - `AppFormatters.brl(num)` para moeda `R$`;
 - `AppFormatters.compactDate(DateTime)` com `dd MMM`;
-- `AppFormatters.date(DateTime)` com `dd MMM yyyy`.
+- `AppFormatters.date(DateTime)` com `dd MMM yyyy`;
+- `AppFormatters.numericDate(DateTime)` com `dd/MM/yyyy`, usado nos campos de
+  data das parcelas.
 
 Depende da inicializacao feita em `main()`:
 
@@ -64,6 +66,23 @@ Depende da inicializacao feita em `main()`:
 Intl.defaultLocale = 'pt_BR';
 await initializeDateFormatting('pt_BR');
 ```
+
+A traducao dos componentes do Material (date picker, dialogs) vem dos delegates
+de `flutter_localizations` registrados em `PerfumeApp`, com `locale` e
+`supportedLocales` fixados em `pt_BR`.
+
+## `utils/date_math.dart`
+
+Aritmetica de datas do parcelamento:
+
+- `addMonthsClamped(base, months)`: soma meses preservando o dia e recuando para
+  o ultimo dia valido quando o mes de destino e mais curto — `31/01 + 1 mes` vira
+  `28/02` (ou `29/02` em ano bissexto) em vez do `03/03` que
+  `DateTime(ano, mes + 1, 31)` produziria;
+- `isSameDay(a, b)`: compara so ano/mes/dia;
+- `dateOnly(value)`: zera o horario.
+
+Usado na geracao das parcelas locais e no recalculo em cadeia dos vencimentos.
 
 ## `utils/frame_analyzer.dart`
 

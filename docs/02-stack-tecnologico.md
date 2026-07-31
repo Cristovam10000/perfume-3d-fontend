@@ -66,6 +66,7 @@ Ha dois usos:
 ### Localizacao, formatacao e fontes
 
 - `intl: ^0.20.2`: moeda e datas em pt-BR. O `main()` inicializa `Intl.defaultLocale = 'pt_BR'` e `initializeDateFormatting('pt_BR')`.
+- `flutter_localizations` (SDK): traducoes dos componentes do Material. `PerfumeApp` registra os delegates globais e fixa `locale`/`supportedLocales` em `pt_BR`, o que deixa o date picker em portugues.
 - `google_fonts: ^8.0.2`: tema usa `GoogleFonts.plusJakartaSansTextTheme`.
 
 Formatadores ficam em [core/utils/app_formatters.dart](../lib/core/utils/app_formatters.dart).

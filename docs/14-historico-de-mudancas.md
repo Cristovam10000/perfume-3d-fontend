@@ -94,6 +94,26 @@ criados pelo usuario. Falhas de conexao entram em uma outbox duravel, sincroniza
 em ordem a cada 10 segundos. IDs locais de cliente, produto, venda e parcela sao
 remapeados para os IDs do PostgreSQL. A geracao 3D permanece online-only.
 
+## Fase 9 - Acoes da venda, datas das parcelas e responsividade
+
+Correcoes de fluxo comercial e layout:
+
+- `SaleActionsButton` passou a ser compartilhado pela visualizacao da venda e
+  pelo detalhe do cliente (os tres pontos do cliente eram um `onPressed: () {}`
+  vazio);
+- a linha do tempo do cliente abre a visualizacao da venda, sem passar pelo
+  wizard;
+- o formulario de recebimento abre com o vencimento cadastrado da parcela, e nao
+  com a data de hoje;
+- o seletor de data aceita datas futuras (o `lastDate` era `DateTime.now()`) e
+  aparece em pt-BR via `flutter_localizations`;
+- alterar a data de uma parcela oferece recalcular as seguintes com um mes de
+  intervalo (`shiftFollowingInstallments` + `addMonthsClamped`), preservando
+  parcelas anteriores e ja pagas;
+- alturas fixas e `Row`/`Column` sem folga viraram layouts flexiveis
+  (`Expanded`, `Flexible`, `FittedBox`, `IntrinsicHeight`, altura minima),
+  eliminando os avisos de overflow com fonte do sistema ampliada.
+
 ## Proximos passos naturais
 
 - Persistir automaticamente o job ativo para retomar o acompanhamento depois

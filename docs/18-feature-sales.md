@@ -116,6 +116,7 @@ de conexao de 4 s e timeout de envio/resposta de 12 s.
 | Confirmar venda | `confirmSale` | `POST /sales/sales` | So navega ao detalhe apos `201`. |
 | Receber | `receivePayment` | `POST /sales/installments/{id}/payments` | Total/parcial com `requestId` idempotente. |
 | Renegociar | `renegotiateInstallment` | `PATCH /sales/installments/{id}/due-date` | Atualiza parcela e avisos. |
+| Deslocar seguintes | `shiftFollowingInstallments` | `PATCH /sales/installments/{id}/due-date` (uma por parcela) | Recalcula as parcelas posteriores em aberto com um mes de intervalo. |
 | Ler notificacao | `markNotificationRead` | `PATCH /sales/notifications/{id}/read` | Atualiza badge e card. |
 
 ### `SalesOfflineStore`
@@ -178,6 +179,11 @@ Mostra:
 chat abre `wa.me` com saudacao pronta, mantendo a ligacao e o envio sob controle
 do usuario.
 
+Os tres pontos usam o mesmo `SaleActionsButton` da visualizacao da venda, com o
+escopo de todas as parcelas do cliente e sem a opcao `Ver cliente` (a tela ja e
+a do cliente). Cada item da linha do tempo — venda ou parcela — abre a
+visualizacao da venda (`/venda/:id`), nunca o wizard de criacao.
+
 Se o id nao existir, mostra `Cliente nao encontrado.`
 
 ### `SaleWizardPage`
@@ -221,8 +227,19 @@ Mostra:
 - parcelas;
 - itens vendidos.
 
-O toque em `Receber` abre valor/data/forma/observacao. Os tres pontos permitem
-ver/editar cliente, cobrar no WhatsApp e renegociar uma parcela aberta.
+O toque em `Receber` abre valor/data/forma/observacao. A data ja vem preenchida
+com o **vencimento cadastrado da parcela** (nao com o dia de hoje) e o seletor
+aceita datas futuras, em pt-BR (`flutter_localizations`).
+
+Quando a data confirmada e diferente do vencimento — no recebimento ou na
+renegociacao — o app pergunta `Deseja alterar tambem as datas das parcelas
+seguintes?`. Escolhendo `Alterar as proximas parcelas`, `shiftFollowingInstallments`
+recalcula cada parcela posterior em aberto com um mes de intervalo a partir da
+nova data (`addMonthsClamped`, que respeita meses de 28/29/30/31 dias). Parcelas
+anteriores e ja pagas nunca sao alteradas.
+
+Os tres pontos usam `SaleActionsButton`: ver/editar cliente, cobrar no WhatsApp
+e renegociar uma parcela aberta.
 
 ### `BillingPage`
 
@@ -294,6 +311,23 @@ Componentes principais:
 - `SyncBadge`;
 - `PaymentDueCard`;
 - `ScoreRing`.
+
+Arquivo: [sale_actions_menu.dart](../lib/features/sales/presentation/widgets/sale_actions_menu.dart).
+
+- `SaleActionsButton`: botao de tres pontos com as acoes comerciais, compartilhado
+  entre a visualizacao da venda e o detalhe do cliente;
+- `chooseOpenInstallment`: escolhe a parcela aberta a remarcar (resolve direto
+  quando so existe uma);
+- `maybeShiftFollowingInstallments`: confirma e aplica o deslocamento das
+  parcelas seguintes.
+
+Arquivo: [commercial_actions.dart](../lib/features/sales/presentation/widgets/commercial_actions.dart).
+
+- `showClientForm`, `showPaymentForm`, `showRenegotiationDate`;
+- `confirmShiftFollowingInstallments`: dialogo `Alterar as proximas parcelas` x
+  `Manter as proximas parcelas`;
+- `runSalesAction`: executa a acao e mostra erro com `Tentar novamente`;
+- `openWhatsAppCollection`, `openWhatsAppConversation`, `openPhoneDialer`.
 
 ## Rotas
 
