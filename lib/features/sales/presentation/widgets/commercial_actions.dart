@@ -254,9 +254,10 @@ Future<PaymentFormValue?> showPaymentForm(
 Future<DateTime?> showRenegotiationDate(
   BuildContext context, {
   required Parcela installment,
+  DateTime? suggestedDate,
 }) {
   final today = dateOnly(DateTime.now());
-  final due = dateOnly(installment.vencimento);
+  final due = dateOnly(suggestedDate ?? installment.vencimento);
   // Abre no vencimento cadastrado; se ele ja passou, cai no dia de hoje para
   // respeitar o piso do seletor.
   final initial = due.isBefore(today) ? today : due;
@@ -265,7 +266,8 @@ Future<DateTime?> showRenegotiationDate(
     initialDate: initial,
     firstDate: today,
     lastDate: _datePickerLastDate(),
-    helpText: 'Novo vencimento',
+    helpText:
+        'Parcela ${installment.numero}/${installment.total}: novo vencimento',
   );
 }
 
@@ -284,11 +286,11 @@ Future<bool?> confirmShiftFollowingInstallments(
           const Text('Deseja alterar também as datas das parcelas seguintes?'),
       content: Text(
         following == 1
-            ? 'A próxima parcela em aberto passa a vencer um mês depois da '
-                'nova data. Parcelas anteriores e já pagas não mudam.'
-            : 'As $following próximas parcelas em aberto passam a vencer com '
-                'um mês de intervalo a partir da nova data. Parcelas '
-                'anteriores e já pagas não mudam.',
+            ? 'Você escolherá agora a nova data da próxima parcela em aberto. '
+                'Parcelas anteriores e já pagas não mudam.'
+            : 'Você escolherá, uma por vez, as novas datas das $following '
+                'próximas parcelas em aberto. Parcelas anteriores e já pagas '
+                'não mudam.',
       ),
       actions: [
         TextButton(

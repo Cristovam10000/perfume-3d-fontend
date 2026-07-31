@@ -42,6 +42,8 @@ class ClientDetailPage extends ConsumerWidget {
           client: cliente,
           installments: parcelas.map((item) => item.parcela).toList(),
           allowViewClient: false,
+          allowDeleteClient: true,
+          onClientDeleted: () => context.pop(),
         ),
       ],
       body: ListView(

@@ -32,6 +32,7 @@ void main() {
     expect(find.text('Editar cliente'), findsOneWidget);
     expect(find.text('Cobrar pelo WhatsApp'), findsOneWidget);
     expect(find.text('Renegociar vencimento'), findsOneWidget);
+    expect(find.text('Excluir cliente'), findsOneWidget);
     // Ja estamos na tela do cliente.
     expect(find.text('Ver cliente'), findsNothing);
   });
@@ -73,7 +74,7 @@ void main() {
     expect(find.text('Cancelar'), findsOneWidget);
   });
 
-  testWidgets('receber em data diferente oferece alterar as proximas parcelas',
+  testWidgets('data do recebimento nao altera vencimentos das parcelas',
       (tester) async {
     final controller = await _openSaleDetail(tester);
 
@@ -88,33 +89,8 @@ void main() {
 
     expect(
       find.text('Deseja alterar também as datas das parcelas seguintes?'),
-      findsOneWidget,
+      findsNothing,
     );
-
-    await tester.tap(find.text('Alterar as próximas parcelas'));
-    await tester.pumpAndSettle();
-
-    final due = {
-      for (final item in controller.state.parcelas)
-        item.numero: item.vencimento,
-    };
-    expect(due[2], DateTime(2030, 3, 15));
-    expect(due[3], DateTime(2030, 4, 15));
-  });
-
-  testWidgets('manter as proximas parcelas preserva os vencimentos',
-      (tester) async {
-    final controller = await _openSaleDetail(tester);
-
-    await tester.tap(find.text('Parcela 1/3'));
-    await tester.pumpAndSettle();
-
-    await _pickDate(tester, '15/02/2030');
-    await tester.tap(find.text('Confirmar recebimento'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Manter as próximas parcelas'));
-    await tester.pumpAndSettle();
 
     final due = {
       for (final item in controller.state.parcelas)
@@ -122,6 +98,93 @@ void main() {
     };
     expect(due[2], DateTime(2030, 2, 28));
     expect(due[3], DateTime(2030, 3, 31));
+  });
+
+  testWidgets('alterar vencimento percorre as proximas parcelas uma por vez',
+      (tester) async {
+    final controller = await _openSaleDetail(tester);
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey('installment-reschedule-local-parcela-1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _enterOpenDatePicker(tester, '15/02/2030');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Deseja alterar também as datas das parcelas seguintes?'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Alterar as próximas parcelas'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Parcela 2/3: novo vencimento'), findsOneWidget);
+    await _enterOpenDatePicker(tester, '20/03/2030');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Parcela 3/3: novo vencimento'), findsOneWidget);
+    await _enterOpenDatePicker(tester, '25/04/2030');
+    await tester.pumpAndSettle();
+
+    final due = {
+      for (final item in controller.state.parcelas)
+        item.numero: item.vencimento,
+    };
+    expect(due[1], DateTime(2030, 2, 15));
+    expect(due[2], DateTime(2030, 3, 20));
+    expect(due[3], DateTime(2030, 4, 25));
+  });
+
+  testWidgets('exclusao nao aparece no menu da venda', (tester) async {
+    await _openSaleDetail(tester);
+
+    await tester.tap(find.byKey(const ValueKey('sale-actions-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Excluir cliente'), findsNothing);
+  });
+
+  testWidgets('cliente com venda nao pode ser excluido', (tester) async {
+    await _openClientDetail(tester);
+
+    await tester.tap(find.byKey(const ValueKey('sale-actions-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Excluir cliente'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining(
+          'Não é possível excluir um cliente que possui vendas'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('cliente sem vendas e excluido depois da confirmacao',
+      (tester) async {
+    final controller = _ActionsTestController(withSales: false);
+    await _openClientDetail(tester, controller: controller);
+
+    await tester.tap(find.byKey(const ValueKey('sale-actions-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Excluir cliente'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Excluir cliente?'), findsOneWidget);
+    expect(
+      find.text(
+        'O cliente Dona Marta Oliveira será removido da lista. '
+        'Essa ação não pode ser desfeita.',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Excluir'));
+    await tester.pumpAndSettle();
+
+    expect(controller.state.clientes, isEmpty);
+    expect(find.text('Excluir cliente?'), findsNothing);
   });
 
   testWidgets('detalhe do cliente nao estoura com fonte ampliada',
@@ -183,6 +246,10 @@ void _useSmallScreenWithLargeFont(WidgetTester tester) {
 Future<void> _pickDate(WidgetTester tester, String date) async {
   await tester.tap(find.byIcon(Icons.calendar_month_outlined));
   await tester.pumpAndSettle();
+  await _enterOpenDatePicker(tester, date);
+}
+
+Future<void> _enterOpenDatePicker(WidgetTester tester, String date) async {
   await tester.tap(find.byIcon(Icons.edit_outlined));
   await tester.pumpAndSettle();
   await tester.enterText(find.byType(TextField).last, date);
@@ -190,8 +257,16 @@ Future<void> _pickDate(WidgetTester tester, String date) async {
   await tester.pumpAndSettle();
 }
 
-Future<_ActionsTestController> _openClientDetail(WidgetTester tester) =>
-    _pumpAt(tester, AppRoutes.clientDetailName, {'id': 'c1'});
+Future<_ActionsTestController> _openClientDetail(
+  WidgetTester tester, {
+  _ActionsTestController? controller,
+}) =>
+    _pumpAt(
+      tester,
+      AppRoutes.clientDetailName,
+      {'id': 'c1'},
+      controller: controller,
+    );
 
 Future<_ActionsTestController> _openSaleDetail(WidgetTester tester) =>
     _pumpAt(tester, AppRoutes.saleDetailName, {'id': 'v1'});
@@ -199,13 +274,14 @@ Future<_ActionsTestController> _openSaleDetail(WidgetTester tester) =>
 Future<_ActionsTestController> _pumpAt(
   WidgetTester tester,
   String routeName,
-  Map<String, String> pathParameters,
-) async {
-  final controller = _ActionsTestController();
-  final router = await _pumpApp(tester, controller: controller);
+  Map<String, String> pathParameters, {
+  _ActionsTestController? controller,
+}) async {
+  final actualController = controller ?? _ActionsTestController();
+  final router = await _pumpApp(tester, controller: actualController);
   router.pushNamed(routeName, pathParameters: pathParameters);
   await tester.pumpAndSettle();
-  return controller;
+  return actualController;
 }
 
 Future<GoRouter> _pumpApp(
@@ -233,7 +309,7 @@ Future<GoRouter> _pumpApp(
 /// Controller offline: ids `local-*` mantem escrita e remarcacao no estado
 /// local, sem HTTP.
 class _ActionsTestController extends SalesController {
-  _ActionsTestController()
+  _ActionsTestController({bool withSales = true})
       : super(
           dio: Dio(BaseOptions(baseUrl: 'http://test')),
           store: _MemoryStore(),
@@ -267,24 +343,28 @@ class _ActionsTestController extends SalesController {
           tem3D: false,
         ),
       ],
-      vendas: [
-        Venda(
-          id: 'v1',
-          clienteId: 'c1',
-          data: DateTime(2029, 12, 31),
-          itens: const [
-            ItemVenda(produtoId: 'p1', quantidade: 1, precoUnitario: 300),
-          ],
-          total: 300,
-          entrada: 0,
-          numParcelas: 3,
-        ),
-      ],
-      parcelas: [
-        _parcela(1, DateTime(2030, 1, 31)),
-        _parcela(2, DateTime(2030, 2, 28)),
-        _parcela(3, DateTime(2030, 3, 31)),
-      ],
+      vendas: withSales
+          ? [
+              Venda(
+                id: 'v1',
+                clienteId: 'c1',
+                data: DateTime(2029, 12, 31),
+                itens: const [
+                  ItemVenda(produtoId: 'p1', quantidade: 1, precoUnitario: 300),
+                ],
+                total: 300,
+                entrada: 0,
+                numParcelas: 3,
+              ),
+            ]
+          : const [],
+      parcelas: withSales
+          ? [
+              _parcela(1, DateTime(2030, 1, 31)),
+              _parcela(2, DateTime(2030, 2, 28)),
+              _parcela(3, DateTime(2030, 3, 31)),
+            ]
+          : const [],
       pagamentos: const [],
       notificacoes: [
         Notificacao(
@@ -297,6 +377,13 @@ class _ActionsTestController extends SalesController {
           valor: 100,
         ),
       ],
+    );
+  }
+
+  @override
+  Future<void> deleteClient(String clientId) async {
+    state = state.copyWith(
+      clientes: state.clientes.where((item) => item.id != clientId).toList(),
     );
   }
 

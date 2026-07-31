@@ -11,7 +11,7 @@ import '../../domain/sales_models.dart';
 import 'commercial_actions.dart';
 import 'sales_widgets.dart';
 
-enum _SaleAction { viewClient, editClient, whatsapp, dueDate }
+enum _SaleAction { viewClient, editClient, whatsapp, dueDate, deleteClient }
 
 /// Botao de tres pontos com as acoes comerciais de uma venda.
 ///
@@ -28,11 +28,18 @@ class SaleActionsButton extends ConsumerStatefulWidget {
   /// Some com `Ver cliente` quando a tela ja e a do proprio cliente.
   final bool allowViewClient;
 
+  /// Exibe a exclusao apenas no detalhe do cliente, nunca no menu da venda.
+  final bool allowDeleteClient;
+
+  final VoidCallback? onClientDeleted;
+
   const SaleActionsButton({
     super.key,
     required this.client,
     required this.installments,
     this.allowViewClient = true,
+    this.allowDeleteClient = false,
+    this.onClientDeleted,
   });
 
   @override
@@ -84,6 +91,19 @@ class _SaleActionsButtonState extends ConsumerState<SaleActionsButton> {
                   ? () => Navigator.pop(sheetContext, _SaleAction.dueDate)
                   : null,
             ),
+            if (widget.allowDeleteClient)
+              ListTile(
+                leading: const Icon(
+                  Icons.delete_outline,
+                  color: AppColors.bad,
+                ),
+                title: const Text(
+                  'Excluir cliente',
+                  style: TextStyle(color: AppColors.bad),
+                ),
+                onTap: () =>
+                    Navigator.pop(sheetContext, _SaleAction.deleteClient),
+              ),
           ],
         ),
       ),
@@ -104,6 +124,9 @@ class _SaleActionsButtonState extends ConsumerState<SaleActionsButton> {
         return;
       case _SaleAction.dueDate:
         await _renegotiate();
+        return;
+      case _SaleAction.deleteClient:
+        await _deleteClient();
         return;
     }
   }
@@ -134,27 +157,64 @@ class _SaleActionsButtonState extends ConsumerState<SaleActionsButton> {
     );
   }
 
+  Future<void> _deleteClient() async {
+    final hasSales = ref
+        .read(salesSnapshotProvider)
+        .vendas
+        .any((sale) => sale.clienteId == widget.client.id);
+    if (hasSales) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Não é possível excluir um cliente que possui vendas. '
+            'O histórico financeiro precisa ser preservado.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Excluir cliente?'),
+        content: Text(
+          'O cliente ${widget.client.nome} será removido da lista. '
+          'Essa ação não pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppColors.bad),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final deleted = await _run(
+      () => ref
+          .read(salesControllerProvider.notifier)
+          .deleteClient(widget.client.id),
+      success: 'Cliente excluído.',
+    );
+    if (deleted && mounted) widget.onClientDeleted?.call();
+  }
+
   Future<void> _renegotiate() async {
     final installment = await chooseOpenInstallment(
       context,
       installments: widget.installments,
     );
     if (installment == null || !mounted) return;
-    final date = await showRenegotiationDate(context, installment: installment);
-    if (date == null || !mounted) return;
-    final done = await _run(
-      () => ref.read(salesControllerProvider.notifier).renegotiateInstallment(
-            installmentId: installment.id,
-            dueDate: date,
-          ),
-      success: 'Vencimento renegociado.',
-    );
-    if (!done || !mounted) return;
-    await maybeShiftFollowingInstallments(
+    await rescheduleInstallmentFlow(
       context,
       ref,
       installment: installment,
-      newDate: date,
       setBusy: _setBusy,
     );
   }
@@ -206,19 +266,33 @@ Future<Parcela?> chooseOpenInstallment(
   );
 }
 
-/// Pergunta e, se confirmado, recalcula as datas das parcelas seguintes
-/// mantendo um mes de intervalo a partir de [newDate].
+/// Altera o vencimento de uma parcela sem registrar um recebimento.
 ///
-/// Nao faz nada quando a data nao mudou ou quando nao ha parcelas posteriores
-/// em aberto. [setBusy] permite que a tela chamadora reflita o carregamento.
-Future<void> maybeShiftFollowingInstallments(
+/// Depois de salvar a parcela escolhida, oferece editar individualmente cada
+/// parcela seguinte em aberto.
+Future<void> rescheduleInstallmentFlow(
   BuildContext context,
   WidgetRef ref, {
   required Parcela installment,
-  required DateTime newDate,
   void Function(bool busy)? setBusy,
 }) async {
+  final newDate = await showRenegotiationDate(
+    context,
+    installment: installment,
+  );
+  if (newDate == null || !context.mounted) return;
   if (isSameDay(newDate, installment.vencimento)) return;
+
+  final saved = await _saveInstallmentDueDate(
+    context,
+    ref,
+    installment: installment,
+    dueDate: newDate,
+    setBusy: setBusy,
+    success: 'Vencimento da parcela atualizado.',
+  );
+  if (!saved || !context.mounted) return;
+
   final following = ref.read(salesSnapshotProvider).parcelasSeguintes(
         installment,
       );
@@ -228,16 +302,66 @@ Future<void> maybeShiftFollowingInstallments(
     following: following.length,
   );
   if (confirmed != true || !context.mounted) return;
+
+  var previousDate = dateOnly(newDate);
+  var changed = 0;
+  for (final original in following) {
+    if (!context.mounted) return;
+    var current = original;
+    for (final candidate in ref.read(salesSnapshotProvider).parcelas) {
+      if (candidate.id == original.id) {
+        current = candidate;
+        break;
+      }
+    }
+    final selected = await showRenegotiationDate(
+      context,
+      installment: current,
+      suggestedDate: addMonthsClamped(previousDate, 1),
+    );
+    if (selected == null || !context.mounted) break;
+    final saved = await _saveInstallmentDueDate(
+      context,
+      ref,
+      installment: current,
+      dueDate: selected,
+      setBusy: setBusy,
+    );
+    if (!saved || !context.mounted) return;
+    previousDate = dateOnly(selected);
+    changed += 1;
+  }
+
+  if (changed > 0 && context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          changed == 1
+              ? 'Data da próxima parcela atualizada.'
+              : 'Datas de $changed parcelas seguintes atualizadas.',
+        ),
+      ),
+    );
+  }
+}
+
+Future<bool> _saveInstallmentDueDate(
+  BuildContext context,
+  WidgetRef ref, {
+  required Parcela installment,
+  required DateTime dueDate,
+  void Function(bool busy)? setBusy,
+  String? success,
+}) async {
   setBusy?.call(true);
   try {
-    await runSalesAction(
+    return await runSalesAction(
       context,
-      () =>
-          ref.read(salesControllerProvider.notifier).shiftFollowingInstallments(
-                installmentId: installment.id,
-                anchorDate: newDate,
-              ),
-      success: 'Datas das próximas parcelas atualizadas.',
+      () => ref.read(salesControllerProvider.notifier).renegotiateInstallment(
+            installmentId: installment.id,
+            dueDate: dueDate,
+          ),
+      success: success,
     );
   } finally {
     setBusy?.call(false);

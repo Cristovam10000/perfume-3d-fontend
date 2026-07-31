@@ -190,6 +190,7 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
             _InstallmentButton(
               parcela: parcela,
               onTap: _busy ? null : () => _receive(parcela),
+              onReschedule: _busy ? null : () => _reschedule(parcela),
             ),
             const SizedBox(height: 10),
           ],
@@ -211,7 +212,7 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
     // caracteres do requestId no backend. O timestamp em micros ja garante
     // unicidade e estabilidade entre reenvios.
     final requestId = 'payment-${DateTime.now().microsecondsSinceEpoch}';
-    final done = await _run(
+    await _run(
       () => ref.read(salesControllerProvider.notifier).receivePayment(
             installmentId: installment.id,
             value: value.value,
@@ -222,13 +223,13 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
           ),
       success: 'Pagamento registrado.',
     );
-    if (!done || !mounted) return;
-    // Recebeu em data diferente do vencimento: oferece deslocar as seguintes.
-    await maybeShiftFollowingInstallments(
+  }
+
+  Future<void> _reschedule(Parcela installment) {
+    return rescheduleInstallmentFlow(
       context,
       ref,
       installment: installment,
-      newDate: value.date,
       setBusy: _setBusy,
     );
   }
@@ -425,10 +426,12 @@ class _ProductSwatch extends StatelessWidget {
 class _InstallmentButton extends StatelessWidget {
   final Parcela parcela;
   final VoidCallback? onTap;
+  final VoidCallback? onReschedule;
 
   const _InstallmentButton({
     required this.parcela,
     this.onTap,
+    this.onReschedule,
   });
 
   @override
@@ -482,6 +485,17 @@ class _InstallmentButton extends StatelessWidget {
                 ],
               ),
             ),
+            if (parcela.estaAberta) ...[
+              const SizedBox(width: 4),
+              IconButton(
+                key: ValueKey('installment-reschedule-${parcela.id}'),
+                tooltip: 'Alterar vencimento',
+                onPressed: onReschedule,
+                icon: const Icon(Icons.edit_calendar_outlined),
+                color: AppColors.accent,
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -539,7 +553,15 @@ class _InstallmentButton extends StatelessWidget {
   String _subtitle(Parcela parcela, _InstallmentTone tone) {
     switch (parcela.status) {
       case ParcelaStatus.paga:
-        return 'Paga em ${AppFormatters.compactDate(parcela.vencimento)}';
+        final paymentEvents = parcela.eventos
+            .where((event) =>
+                event.tipo == EventoTipo.pagamento ||
+                event.tipo == EventoTipo.parcial)
+            .toList()
+          ..sort((a, b) => a.data.compareTo(b.data));
+        return paymentEvents.isEmpty
+            ? 'Paga'
+            : 'Paga em ${AppFormatters.compactDate(paymentEvents.last.data)}';
       case ParcelaStatus.parcial:
         return 'Parcial - ${AppFormatters.brl(parcela.valorPago)} de ${AppFormatters.brl(parcela.valor)}';
       case ParcelaStatus.atrasada:

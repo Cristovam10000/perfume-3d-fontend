@@ -111,12 +111,13 @@ de conexao de 4 s e timeout de envio/resposta de 12 s.
 | Acao | Metodo no controller | Endpoint backend | Comportamento |
 |---|---|---|---|
 | Criar/editar cliente | `createClient` / `updateClient` | `POST/PATCH /sales/clients` | Insere a resposta confirmada e atualiza o snapshot. |
+| Excluir cliente | `deleteClient` | `DELETE /sales/clients/{id}` | Remove clientes sem vendas; IDs locais são descartados antes da sincronização. |
 | Criar/editar produto | `createProduct` / `updateProduct` | `POST/PATCH /sales/products` | Preco e custo obrigatorios. |
 | Reabastecer/ajustar | `restockProduct` / `adjustProductStock` | `PATCH /sales/products/{id}/stock` | Usa o produto devolvido pelo backend. |
 | Confirmar venda | `confirmSale` | `POST /sales/sales` | So navega ao detalhe apos `201`. |
 | Receber | `receivePayment` | `POST /sales/installments/{id}/payments` | Total/parcial com `requestId` idempotente. |
 | Renegociar | `renegotiateInstallment` | `PATCH /sales/installments/{id}/due-date` | Atualiza parcela e avisos. |
-| Deslocar seguintes | `shiftFollowingInstallments` | `PATCH /sales/installments/{id}/due-date` (uma por parcela) | Recalcula as parcelas posteriores em aberto com um mes de intervalo. |
+| Renegociar seguintes | `renegotiateInstallment` | `PATCH /sales/installments/{id}/due-date` (uma por parcela) | Abre cada parcela seguinte para o usuario escolher sua data. |
 | Ler notificacao | `markNotificationRead` | `PATCH /sales/notifications/{id}/read` | Atualiza badge e card. |
 
 ### `SalesOfflineStore`
@@ -131,6 +132,10 @@ Clientes, produtos e vendas criados offline recebem IDs `local-*`. A fila
 sincroniza primeiro suas dependencias e remapeia referencias antes de enviar
 vendas, parcelas e pagamentos. `requestId` protege criacoes e recebimentos
 contra duplicacao quando a resposta HTTP se perde.
+
+A exclusao de um cliente ainda local cancela seu cadastro pendente. Para um
+cliente ja sincronizado, o backend precisa estar disponivel para confirmar que
+ele nao possui vendas antes de fazer a exclusao logica.
 
 ## Paginas
 
@@ -227,19 +232,18 @@ Mostra:
 - parcelas;
 - itens vendidos.
 
-O toque em `Receber` abre valor/data/forma/observacao. A data ja vem preenchida
-com o **vencimento cadastrado da parcela** (nao com o dia de hoje) e o seletor
-aceita datas futuras, em pt-BR (`flutter_localizations`).
+O toque em `Receber` abre valor/data/forma/observacao. Essa data representa
+somente o **dia do recebimento** e não altera vencimentos.
 
-Quando a data confirmada e diferente do vencimento — no recebimento ou na
-renegociacao — o app pergunta `Deseja alterar tambem as datas das parcelas
-seguintes?`. Escolhendo `Alterar as proximas parcelas`, `shiftFollowingInstallments`
-recalcula cada parcela posterior em aberto com um mes de intervalo a partir da
-nova data (`addMonthsClamped`, que respeita meses de 28/29/30/31 dias). Parcelas
-anteriores e ja pagas nunca sao alteradas.
+Cada parcela aberta também mostra a ação `Alterar vencimento`. Depois de salvar
+a parcela escolhida, o app pergunta se as seguintes também serão alteradas.
+Escolhendo `Alterar as próximas parcelas`, abre imediatamente o calendário da
+próxima parcela e avança uma por vez, permitindo decidir cada data. O calendário
+sugere um mês após a escolha anterior; parcelas anteriores e já pagas não mudam.
 
 Os tres pontos usam `SaleActionsButton`: ver/editar cliente, cobrar no WhatsApp
-e renegociar uma parcela aberta.
+e renegociar uma parcela aberta. No detalhe do cliente, o menu também permite
+excluir clientes sem vendas, mediante confirmação.
 
 ### `BillingPage`
 
@@ -318,8 +322,8 @@ Arquivo: [sale_actions_menu.dart](../lib/features/sales/presentation/widgets/sal
   entre a visualizacao da venda e o detalhe do cliente;
 - `chooseOpenInstallment`: escolhe a parcela aberta a remarcar (resolve direto
   quando so existe uma);
-- `maybeShiftFollowingInstallments`: confirma e aplica o deslocamento das
-  parcelas seguintes.
+- `rescheduleInstallmentFlow`: salva o vencimento e percorre individualmente as
+  parcelas seguintes escolhidas pelo usuario.
 
 Arquivo: [commercial_actions.dart](../lib/features/sales/presentation/widgets/commercial_actions.dart).
 

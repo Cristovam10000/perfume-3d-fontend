@@ -219,6 +219,50 @@ class SalesController extends StateNotifier<SalesSnapshot> {
     }
   }
 
+  Future<void> deleteClient(String clientId) async {
+    await _ready.future;
+    final client = state.clienteById(clientId);
+    if (client == null) {
+      throw const AppException('Cliente não encontrado.');
+    }
+    if (state.vendas.any((sale) => sale.clienteId == clientId)) {
+      throw const AppException(
+        'Não é possível excluir um cliente que possui vendas. '
+        'O histórico financeiro precisa ser preservado.',
+      );
+    }
+
+    if (_isLocalId(clientId)) {
+      _outbox.removeWhere((operation) {
+        if (operation.type != 'createClient' &&
+            operation.type != 'updateClient') {
+          return false;
+        }
+        final rawClient = operation.payload['client'];
+        return rawClient is Map && '${rawClient['id']}' == clientId;
+      });
+      _idMap.remove(clientId);
+      _removeClient(clientId);
+      await _persist();
+      return;
+    }
+
+    try {
+      await _dio.delete('/sales/clients/$clientId');
+      _removeClient(clientId);
+      await _persist();
+      unawaited(refresh(silent: true));
+    } catch (error) {
+      if (error is DioException && error.response == null) {
+        throw AppException(
+          'Conecte o aplicativo ao backend para excluir este cliente.',
+          error,
+        );
+      }
+      throw _asAppException(error);
+    }
+  }
+
   Future<Produto> createProduct(Produto product) async {
     await _ready.future;
     final operationId = _newId('product');
@@ -1032,6 +1076,12 @@ class SalesController extends StateNotifier<SalesSnapshot> {
         ...state.clientes.where((item) => item.id != client.id),
         client,
       ],
+    );
+  }
+
+  void _removeClient(String clientId) {
+    state = state.copyWith(
+      clientes: state.clientes.where((item) => item.id != clientId).toList(),
     );
   }
 
