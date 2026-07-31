@@ -206,23 +206,28 @@ class _SaleWizardPageState extends ConsumerState<SaleWizardPage> {
                           _confirmSale(data, total);
                         }
                       : null,
+                  // FittedBox: o rotulo encolhe em vez de estourar a largura
+                  // do botao quando a fonte do sistema esta ampliada.
                   child: _saving
                       ? const SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : _step == 3
-                          ? const Text('Confirmar venda')
-                          : const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text('Continuar'),
-                                SizedBox(width: 8),
-                                Icon(Icons.arrow_forward_rounded, size: 20),
-                              ],
-                            ),
+                      : FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: _step == 3
+                              ? const Text('Confirmar venda')
+                              : const Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text('Continuar'),
+                                    SizedBox(width: 8),
+                                    Icon(Icons.arrow_forward_rounded, size: 20),
+                                  ],
+                                ),
+                        ),
                 ),
               ),
             ],
@@ -589,13 +594,24 @@ class _ItemsStep extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const Text(
-                  'Total',
-                  style: TextStyle(
-                      color: Colors.white70, fontWeight: FontWeight.w700),
+                const Expanded(
+                  child: Text(
+                    'Total',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: Colors.white70, fontWeight: FontWeight.w700),
+                  ),
                 ),
-                const Spacer(),
-                MoneyText(value: total, color: Colors.white, size: 24),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child:
+                        MoneyText(value: total, color: Colors.white, size: 24),
+                  ),
+                ),
               ],
             ),
           ),
@@ -1334,7 +1350,9 @@ class _DashedButton extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(AppRadius.lg),
       child: Container(
-        height: 56,
+        // Altura minima: o rotulo pode ocupar mais espaco com fonte ampliada.
+        constraints: const BoxConstraints(minHeight: 56),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: AppColors.bgTint,
           border: Border.all(color: AppColors.lineStrong),
@@ -1345,9 +1363,15 @@ class _DashedButton extends StatelessWidget {
           children: [
             Icon(icon, color: AppColors.accent),
             const SizedBox(width: 8),
-            Text(label,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                    color: AppColors.accentInk, fontWeight: FontWeight.w900)),
+                    color: AppColors.accentInk, fontWeight: FontWeight.w900),
+              ),
+            ),
           ],
         ),
       ),
@@ -1400,13 +1424,25 @@ class _BreakdownLine extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         children: [
-          Text(label,
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                  color: AppColors.ink3, fontWeight: FontWeight.w700)),
-          const Spacer(),
-          Text(
-            '${AppFormatters.brl(value)}$suffix',
-            style: const TextStyle(fontWeight: FontWeight.w900),
+                  color: AppColors.ink3, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                '${AppFormatters.brl(value)}$suffix',
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ),
           ),
         ],
       ),

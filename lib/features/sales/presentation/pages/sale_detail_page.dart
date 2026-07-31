@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../../../app/router/app_routes.dart';
 import '../../../../app/theme/app_tokens.dart';
 import '../../../../core/utils/app_formatters.dart';
+import '../../../../core/utils/date_math.dart';
 import '../../data/sales_repository.dart';
 import '../../domain/sales_models.dart';
 import '../widgets/commercial_actions.dart';
+import '../widgets/sale_actions_menu.dart';
 import '../widgets/sales_widgets.dart';
 
 class SaleDetailPage extends ConsumerStatefulWidget {
@@ -64,11 +64,7 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
       title: 'Venda #${venda.id}',
       showBack: true,
       actions: [
-        CircleIconButton(
-          icon: _busy ? Icons.hourglass_top_rounded : Icons.more_horiz,
-          onPressed:
-              _busy ? null : () => _showSaleActions(venda, cliente, parcelas),
-        ),
+        SaleActionsButton(client: cliente, installments: parcelas),
       ],
       body: ListView(
         children: [
@@ -112,17 +108,27 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
                 children: [
                   Row(
                     children: [
-                      const Text(
-                        'TOTAL',
-                        style: TextStyle(
-                          color: AppColors.ink3,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
+                      const Expanded(
+                        child: Text(
+                          'TOTAL',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppColors.ink3,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.5,
+                          ),
                         ),
                       ),
-                      const Spacer(),
-                      MoneyText(value: venda.total, size: 22),
+                      const SizedBox(width: 12),
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: MoneyText(value: venda.total, size: 22),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -139,23 +145,31 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  // Expanded nos dois lados: com fonte grande o texto quebra
+                  // em vez de estourar a largura do card.
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Pago ${AppFormatters.brl(pago)}',
-                        style: const TextStyle(
-                          color: AppColors.good,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 12,
+                      Expanded(
+                        child: Text(
+                          'Pago ${AppFormatters.brl(pago)}',
+                          style: const TextStyle(
+                            color: AppColors.good,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
-                      const Spacer(),
-                      Text(
-                        'Restante ${AppFormatters.brl(restante)}',
-                        style: const TextStyle(
-                          color: AppColors.ink3,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Restante ${AppFormatters.brl(restante)}',
+                          textAlign: TextAlign.end,
+                          style: const TextStyle(
+                            color: AppColors.ink3,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ],
@@ -197,7 +211,7 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
     // caracteres do requestId no backend. O timestamp em micros ja garante
     // unicidade e estabilidade entre reenvios.
     final requestId = 'payment-${DateTime.now().microsecondsSinceEpoch}';
-    await _run(
+    final done = await _run(
       () => ref.read(salesControllerProvider.notifier).receivePayment(
             installmentId: installment.id,
             value: value.value,
@@ -208,144 +222,31 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
           ),
       success: 'Pagamento registrado.',
     );
-  }
-
-  Future<void> _showSaleActions(
-    Venda sale,
-    Cliente client,
-    List<Parcela> installments,
-  ) async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: AppColors.bg,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.person_outline),
-              title: const Text('Ver cliente'),
-              onTap: () => Navigator.pop(sheetContext, 'view'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Editar cliente'),
-              onTap: () => Navigator.pop(sheetContext, 'edit'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.chat_bubble_outline),
-              title: const Text('Cobrar pelo WhatsApp'),
-              onTap: () => Navigator.pop(sheetContext, 'whatsapp'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.event_repeat_outlined),
-              title: const Text('Renegociar vencimento'),
-              onTap: installments.any((item) => item.estaAberta)
-                  ? () => Navigator.pop(sheetContext, 'dueDate')
-                  : null,
-            ),
-          ],
-        ),
-      ),
-    );
-    if (!mounted || action == null) return;
-    switch (action) {
-      case 'view':
-        context.pushNamed(
-          AppRoutes.clientDetailName,
-          pathParameters: {'id': client.id},
-        );
-        return;
-      case 'edit':
-        final value = await showClientForm(context, client: client);
-        if (value == null || !mounted) return;
-        await _run(
-          () => ref.read(salesControllerProvider.notifier).updateClient(
-                client.copyWith(
-                  nome: value.name,
-                  telefone: value.phone,
-                  bairro: value.neighborhood,
-                ),
-              ),
-          success: 'Cliente atualizado.',
-        );
-        return;
-      case 'whatsapp':
-        final openItems =
-            installments.where((item) => item.estaAberta).toList();
-        final open = openItems.isEmpty ? null : openItems.first;
-        await _run(
-          () => openWhatsAppCollection(client: client, installment: open),
-        );
-        return;
-      case 'dueDate':
-        final installment = await _chooseOpenInstallment(installments);
-        if (installment == null || !mounted) return;
-        final date = await showRenegotiationDate(
-          context,
-          installment: installment,
-        );
-        if (date == null || !mounted) return;
-        await _run(
-          () =>
-              ref.read(salesControllerProvider.notifier).renegotiateInstallment(
-                    installmentId: installment.id,
-                    dueDate: date,
-                  ),
-          success: 'Vencimento renegociado.',
-        );
-        return;
-    }
-  }
-
-  Future<Parcela?> _chooseOpenInstallment(List<Parcela> installments) {
-    final open = installments.where((item) => item.estaAberta).toList();
-    if (open.length == 1) return Future.value(open.first);
-    return showDialog<Parcela>(
-      context: context,
-      builder: (dialogContext) => SimpleDialog(
-        title: const Text('Escolha a parcela'),
-        children: [
-          for (final installment in open)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(dialogContext, installment),
-              child: Text(
-                'Parcela ${installment.numero}/${installment.total} · '
-                '${AppFormatters.brl(installment.restante)}',
-              ),
-            ),
-        ],
-      ),
+    if (!done || !mounted) return;
+    // Recebeu em data diferente do vencimento: oferece deslocar as seguintes.
+    await maybeShiftFollowingInstallments(
+      context,
+      ref,
+      installment: installment,
+      newDate: value.date,
+      setBusy: _setBusy,
     );
   }
 
-  Future<void> _run(
+  void _setBusy(bool value) {
+    if (mounted) setState(() => _busy = value);
+  }
+
+  Future<bool> _run(
     Future<void> Function() operation, {
     String? success,
   }) async {
-    if (_busy) return;
-    setState(() => _busy = true);
+    if (_busy) return false;
+    _setBusy(true);
     try {
-      await operation();
-      if (!mounted) return;
-      if (success != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(success)),
-        );
-      }
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('$error'),
-          action: SnackBarAction(
-            label: 'Tentar novamente',
-            onPressed: () => _run(operation, success: success),
-          ),
-        ),
-      );
+      return await runSalesAction(context, operation, success: success);
     } finally {
-      if (mounted) setState(() => _busy = false);
+      _setBusy(false);
     }
   }
 
@@ -355,8 +256,7 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
 
     final count = venda.numParcelas <= 0 ? 1 : venda.numParcelas;
     final baseValue = restante / count;
-    final startDate =
-        DateTime(venda.data.year, venda.data.month, venda.data.day);
+    final startDate = dateOnly(venda.data);
 
     return List.generate(count, (index) {
       final numero = index + 1;
@@ -366,11 +266,7 @@ class _SaleDetailPageState extends ConsumerState<SaleDetailPage> {
         numero: numero,
         total: count,
         valor: baseValue,
-        vencimento: DateTime(
-          startDate.year,
-          startDate.month + numero,
-          startDate.day,
-        ),
+        vencimento: addMonthsClamped(startDate, numero),
         status: ParcelaStatus.pendente,
         syncStatus: SyncStatus.pending,
       );

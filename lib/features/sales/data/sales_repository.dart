@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/errors/app_exception.dart';
+import '../../../core/utils/date_math.dart';
 import '../domain/sales_models.dart';
 import 'sales_offline_store.dart';
 
@@ -109,7 +110,7 @@ class SalesController extends StateNotifier<SalesSnapshot> {
         throw const AppException('Resposta comercial invalida.');
       }
       state = _snapshotFromMap(Map<String, dynamic>.from(data)).copyWith(
-        hoje: _dateOnly(DateTime.now()),
+        hoje: dateOnly(DateTime.now()),
       );
       await _persist();
     } catch (error) {
@@ -518,6 +519,37 @@ class SalesController extends StateNotifier<SalesSnapshot> {
       }
       throw _asAppException(error);
     }
+  }
+
+  /// Recalcula o vencimento das parcelas seguintes a [installmentId] mantendo
+  /// um intervalo de um mes a partir de [anchorDate].
+  ///
+  /// Parcelas anteriores e ja pagas nao sao tocadas. Retorna quantas parcelas
+  /// foram remarcadas.
+  Future<int> shiftFollowingInstallments({
+    required String installmentId,
+    required DateTime anchorDate,
+    String? notes,
+  }) async {
+    await _ready.future;
+    final current = _parcelaById(installmentId);
+    if (current == null) {
+      throw const AppException('Parcela nao encontrada.');
+    }
+    final following = state.parcelasSeguintes(current);
+    var updated = 0;
+    for (final installment in following) {
+      await renegotiateInstallment(
+        installmentId: installment.id,
+        dueDate: addMonthsClamped(
+          dateOnly(anchorDate),
+          installment.numero - current.numero,
+        ),
+        notes: notes,
+      );
+      updated += 1;
+    }
+    return updated;
   }
 
   Future<void> markNotificationRead(
@@ -1293,11 +1325,7 @@ List<Parcela> _localInstallments(Venda sale) {
         numero: index + 1,
         total: values.length,
         valor: values[index],
-        vencimento: DateTime(
-          sale.data.year,
-          sale.data.month + index + 1,
-          sale.data.day,
-        ),
+        vencimento: addMonthsClamped(dateOnly(sale.data), index + 1),
         status: ParcelaStatus.pendente,
         syncStatus: SyncStatus.pending,
       ),
@@ -1351,10 +1379,6 @@ T _enumByName<T extends Enum>(List<T> values, Object? raw, T fallback) {
     (value) => value.name == raw,
     orElse: () => fallback,
   );
-}
-
-DateTime _dateOnly(DateTime value) {
-  return DateTime(value.year, value.month, value.day);
 }
 
 class _PendingSalesOperation {

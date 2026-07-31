@@ -62,14 +62,39 @@ void main() {
     expect(find.text('Salvar alterações'), findsNothing);
     expect(controller.state.produtos.single.precoBase, 250);
   });
+
+  testWidgets('modal do produto nao estoura com fonte ampliada e tela pequena',
+      (tester) async {
+    final controller = _StockTestController();
+    // A fonte de teste e monoespacada e bem mais larga que a real: 1.3 aqui
+    // corresponde a um aparelho com fonte bastante ampliada.
+    tester.platformDispatcher.textScaleFactorTestValue = 1.3;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    await _pumpProducts(
+      tester,
+      controller,
+      size: const Size(720, 1560),
+      devicePixelRatio: 2,
+    );
+
+    await tester.ensureVisible(find.text('Produto teste'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Produto teste'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Repor estoque'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 Future<void> _pumpProducts(
   WidgetTester tester,
-  _StockTestController controller,
-) async {
-  tester.view.physicalSize = const Size(1080, 1920);
-  tester.view.devicePixelRatio = 1;
+  _StockTestController controller, {
+  Size size = const Size(1080, 1920),
+  double devicePixelRatio = 1,
+}) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = devicePixelRatio;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
