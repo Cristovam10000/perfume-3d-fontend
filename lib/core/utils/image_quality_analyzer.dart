@@ -10,14 +10,15 @@ class QualityMessage {
 
 /// Heurísticas de orientação durante a captura guiada.
 ///
-/// O fluxo novo é por vista cardeal (4 obrigatórias + até 2 extras), então
-/// as mensagens guiam o usuário até completar as 4 cardeais — não importa
-/// a contagem total, mas qual cardeal ainda falta.
+/// O fluxo novo é por vista cardeal (4 obrigatórias), topo opcional e até 2
+/// extras. As mensagens guiam o usuário até completar as 4 cardeais — não
+/// importa a contagem total, mas qual cardeal ainda falta.
 class ImageQualityAnalyzer {
   const ImageQualityAnalyzer();
 
   List<QualityMessage> evaluate({
     required int cardinalCount,
+    bool hasTop = false,
     int extrasCount = 0,
   }) {
     final messages = <QualityMessage>[];
@@ -33,14 +34,19 @@ class ImageQualityAnalyzer {
         'Faltam $faltam vista(s) cardeal(is) para enviar.',
         QualityLevel.warning,
       ));
+    } else if (!hasTop) {
+      messages.add(const QualityMessage(
+        'Todas as cardeais prontas. Você pode enviar ou adicionar o topo opcional.',
+        QualityLevel.ok,
+      ));
     } else if (extrasCount < AppConstants.maxExtras) {
       messages.add(const QualityMessage(
-        'Todas as cardeais prontas. Você pode enviar ou adicionar até 2 extras.',
+        'Cardeais e topo prontos. Você pode enviar ou adicionar até 2 extras.',
         QualityLevel.ok,
       ));
     } else {
       messages.add(const QualityMessage(
-        'Captura completa (4 cardeais + 2 extras). Pronto para enviar.',
+        'Captura completa (4 cardeais + topo + 2 extras). Pronto para enviar.',
         QualityLevel.ok,
       ));
     }

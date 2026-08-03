@@ -32,6 +32,13 @@ class CaptureIntroPage extends StatelessWidget {
           ),
           SizedBox(height: 12),
           InstructionCard(
+            icon: Icons.vertical_align_top,
+            title: 'Topo opcional',
+            description:
+                'Fotografe a tampa de cima, com a câmera perpendicular. Mantenha a frente do frasco virada para a base do enquadramento e use luz difusa.',
+          ),
+          SizedBox(height: 12),
+          InstructionCard(
             icon: Icons.filter_center_focus,
             title: 'Centralize o objeto',
             description:
@@ -49,7 +56,7 @@ class CaptureIntroPage extends StatelessWidget {
             icon: Icons.photo_library_outlined,
             title: 'Quantidade',
             description:
-                '${AppConstants.requiredImages} vistas obrigatórias + até '
+                '${AppConstants.requiredImages} vistas obrigatórias + topo opcional + até '
                 '${AppConstants.maxExtras} fotos extras opcionais.',
           ),
         ],

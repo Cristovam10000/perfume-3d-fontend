@@ -22,7 +22,7 @@ ImageProvider<Object> capturePreviewImageProvider(
   return ResizeImage(FileImage(file), width: cacheWidth);
 }
 
-/// Tela principal de captura guiada (grid 4 vistas + 2 extras).
+/// Tela principal de captura guiada (4 vistas + topo opcional + 2 extras).
 ///
 /// Cada slot abre a câmera nativa direcionada à vista correspondente.
 /// O botão "Enviar" só ativa quando as 4 cardeais estão preenchidas.
@@ -112,6 +112,17 @@ class _CaptureViewsPageState extends ConsumerState<CaptureViewsPage> {
             ],
           ),
           const SizedBox(height: 20),
+          _TopSection(
+            file: state.top,
+            disabled: state.uploading || selectingImage,
+            onCapture: () => _captureFor(
+              context,
+              controller,
+              AppConstants.topView,
+            ),
+            onClear: controller.removeTop,
+          ),
+          const SizedBox(height: 20),
           _ExtrasSection(
             extras: state.extras,
             canAdd: state.canAddExtra && !state.uploading && !selectingImage,
@@ -187,6 +198,57 @@ class _CaptureViewsPageState extends ConsumerState<CaptureViewsPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _TopSection extends StatelessWidget {
+  const _TopSection({
+    required this.file,
+    required this.disabled,
+    required this.onCapture,
+    required this.onClear,
+  });
+
+  final File? file;
+  final bool disabled;
+  final VoidCallback onCapture;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Topo (opcional)',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Mantenha a frente do frasco virada para a base do enquadramento. '
+          'Posicione a câmera perpendicular à tampa e use luz difusa; sol '
+          'direto vira reflexo permanente na textura.',
+          style: TextStyle(
+            color: scheme.onSurfaceVariant,
+            fontSize: 12,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          width: double.infinity,
+          height: 180,
+          child: _CardinalSlot(
+            view: AppConstants.topView,
+            file: file,
+            disabled: disabled,
+            onCapture: onCapture,
+            onClear: onClear,
+          ),
+        ),
+      ],
     );
   }
 }

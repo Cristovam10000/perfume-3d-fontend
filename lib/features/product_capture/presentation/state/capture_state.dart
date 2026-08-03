@@ -6,12 +6,17 @@ import '../../../../core/utils/image_quality_analyzer.dart';
 /// Estado da captura guiada por vista cardeal.
 ///
 /// Substitui a abordagem antiga (`List<File>` sem rótulo) por um mapa
-/// vista→arquivo para as 4 cardeais + lista para extras. Isso casa com o
-/// contrato `views` paralelo a `images` no POST /captures.
+/// vista→arquivo para as 4 cardeais, um campo próprio para o topo opcional e
+/// uma lista para extras. Isso casa com o contrato `views` paralelo a
+/// `images` no POST /captures.
 class CaptureState {
   /// Mapa vista cardeal -> arquivo capturado. Chaves possíveis:
   /// `front`, `left`, `back`, `right`. Valor null = ainda não capturado.
   final Map<String, File?> cardinals;
+
+  /// Foto opcional da tampa. Fica fora de [cardinals] para não participar do
+  /// critério das 4 vistas obrigatórias.
+  final File? top;
 
   /// Fotos extras sem rótulo cardeal (até `AppConstants.maxExtras`).
   /// Não obrigatórias; o CLIPViewRouter no backend pode aproveitar.
@@ -33,6 +38,7 @@ class CaptureState {
       'back': null,
       'right': null,
     },
+    this.top,
     this.extras = const [],
     this.qualityMessages = const [],
     this.uploading = false,
@@ -44,6 +50,8 @@ class CaptureState {
 
   CaptureState copyWith({
     Map<String, File?>? cardinals,
+    File? top,
+    bool clearTop = false,
     List<File>? extras,
     List<QualityMessage>? qualityMessages,
     bool? uploading,
@@ -56,6 +64,7 @@ class CaptureState {
   }) {
     return CaptureState(
       cardinals: cardinals ?? this.cardinals,
+      top: clearTop ? null : (top ?? this.top),
       extras: extras ?? this.extras,
       qualityMessages: qualityMessages ?? this.qualityMessages,
       uploading: uploading ?? this.uploading,
@@ -69,8 +78,8 @@ class CaptureState {
   /// Quantidade de cardeais já capturadas (0..4).
   int get cardinalCount => cardinals.values.where((f) => f != null).length;
 
-  /// Total de imagens (cardeais + extras).
-  int get totalCount => cardinalCount + extras.length;
+  /// Total de imagens (cardeais + topo opcional + extras).
+  int get totalCount => cardinalCount + (top == null ? 0 : 1) + extras.length;
 
   /// True quando todas as 4 cardeais estão preenchidas.
   bool get allCardinalsFilled =>
@@ -82,7 +91,8 @@ class CaptureState {
   /// True se ainda cabem extras.
   bool get canAddExtra => extras.length < AppConstants.maxExtras;
 
-  /// Lista plana de arquivos + views paralela, na ordem cardinal + extras.
+  /// Lista plana de arquivos + views paralela, na ordem cardinais + topo +
+  /// extras.
   /// Usada pelo `CaptureRepository.uploadImages`.
   ({List<File> files, List<String> views}) flattenForUpload() {
     final files = <File>[];
@@ -92,6 +102,10 @@ class CaptureState {
       if (f == null) continue;
       files.add(f);
       views.add(v);
+    }
+    if (top != null) {
+      files.add(top!);
+      views.add(AppConstants.topView);
     }
     for (final f in extras) {
       files.add(f);

@@ -30,14 +30,15 @@ class AppConstants {
   }
 
   // ---- Captura guiada (Hunyuan3D-2mv) ----
-  // O modelo Hunyuan3D-2mv foi treinado com 4 vistas cardeais (front, left,
-  // back, right) e aceita até 6 imagens no total (server.py:_MAX_IMAGENS=6).
-  // O app guia o usuário a capturar cada vista explicitamente e envia o
+  // O modelo Hunyuan3D-2mv recebe as 4 vistas cardeais (front, left, back,
+  // right). A vista `top` é opcional e não vai para o Hunyuan: o backend a
+  // usa depois para projetar a textura da tampa no GLB. O app envia cada
   // rótulo no campo `views` do POST /captures.
   static const List<String> cardinalViews = ['front', 'left', 'back', 'right'];
+  static const String topView = 'top';
   static const int requiredImages = 4; // 4 cardeais obrigatórias
   static const int maxExtras = 2; // até 2 fotos extras opcionais
-  static const int maxImages = 6; // requiredImages + maxExtras
+  static const int maxImages = 7; // cardeais + topo opcional + extras
 
   // Os JPEGs originais continuam disponíveis para upload. Estes limites
   // controlam apenas a resolução decodificada dos previews na interface.
@@ -50,6 +51,7 @@ class AppConstants {
     'left': 'Esquerda',
     'back': 'Trás',
     'right': 'Direita',
+    'top': 'Topo',
     'extra': 'Extra',
   };
 

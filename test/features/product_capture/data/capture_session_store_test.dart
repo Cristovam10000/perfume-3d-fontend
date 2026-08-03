@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -30,20 +31,50 @@ void main() {
     await source.writeAsBytes(bytes);
 
     final imported = await store.importFile(source, 'front');
-    await store.save(
-      CaptureSessionDraft(
-        cardinalPaths: {'front': imported.path},
-        pendingTarget: 'left',
-        productId: 42,
-      ),
+    final top = await store.importFile(source, 'top');
+    final draft = CaptureSessionDraft(
+      cardinalPaths: {'front': imported.path},
+      topPath: top.path,
+      pendingTarget: 'left',
+      productId: 42,
     );
+    await store.save(draft);
     final restored = await store.load();
 
+    expect(draft.toJson()['version'], 3);
     expect(imported.path, isNot(source.path));
     expect(imported.path, endsWith('.jpg'));
     expect(await imported.readAsBytes(), bytes);
     expect(restored.cardinalPaths['front'], imported.path);
+    expect(restored.topPath, top.path);
     expect(restored.pendingTarget, 'left');
+    expect(restored.productId, 42);
+  });
+
+  test('manifesto version 2 sem top continua carregando', () async {
+    final draftDirectory = Directory(
+      '${temporaryDirectory.path}${Platform.pathSeparator}capture_draft',
+    );
+    await draftDirectory.create(recursive: true);
+    final manifest = File(
+      '${draftDirectory.path}${Platform.pathSeparator}session.json',
+    );
+    await manifest.writeAsString(
+      jsonEncode({
+        'version': 2,
+        'cardinals': {'front': 'front.jpg'},
+        'extras': ['extra.jpg'],
+        'pendingTarget': 'right',
+        'productId': 42,
+      }),
+    );
+
+    final restored = await store.load();
+
+    expect(restored.cardinalPaths, {'front': 'front.jpg'});
+    expect(restored.topPath, isNull);
+    expect(restored.extraPaths, ['extra.jpg']);
+    expect(restored.pendingTarget, 'right');
     expect(restored.productId, 42);
   });
 

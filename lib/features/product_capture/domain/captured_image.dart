@@ -1,15 +1,15 @@
 import 'dart:io';
 
-/// Foto capturada com seu rótulo de vista cardeal.
+/// Foto capturada com seu rótulo de vista.
 ///
-/// O Hunyuan3D-2mv espera vistas nomeadas (`front`, `left`, `back`, `right`).
-/// O app envia o `view` no campo `views` do POST /captures; o backend usa
-/// esse rótulo para reordenar antes de chamar o servidor de inferência.
+/// O Hunyuan3D-2mv espera as vistas `front`, `left`, `back` e `right`. O app
+/// também pode enviar `top`, usado pelo pós-processamento da tampa, e `extra`.
+/// O backend usa esses rótulos para rotear cada imagem corretamente.
 class CapturedImage {
   final File file;
   final DateTime capturedAt;
 
-  /// Rótulo de vista: `front`, `left`, `back`, `right` ou `extra`.
+  /// Rótulo: `front`, `left`, `back`, `right`, `top` ou `extra`.
   /// `null` só faz sentido para clientes legados; o app guiado sempre preenche.
   final String? view;
 

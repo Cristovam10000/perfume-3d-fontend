@@ -53,12 +53,23 @@ class CaptureController extends StateNotifier<CaptureState> {
         }
       }
 
+      File? top;
+      final topPath = draft.topPath;
+      if (topPath != null && await File(topPath).exists()) {
+        top = File(topPath);
+      }
+
       final extras = <File>[];
       for (final path in draft.extraPaths.take(AppConstants.maxExtras)) {
         if (await File(path).exists()) extras.add(File(path));
       }
 
-      state = state.copyWith(cardinals: cardinals, extras: extras);
+      state = state.copyWith(
+        cardinals: cardinals,
+        top: top,
+        clearTop: top == null,
+        extras: extras,
+      );
       state = state.copyWith(
         productId: draft.productId,
         clearProductId: draft.productId == null,
@@ -78,6 +89,7 @@ class CaptureController extends StateNotifier<CaptureState> {
     state = state.copyWith(
       qualityMessages: _analyzer.evaluate(
         cardinalCount: state.cardinalCount,
+        hasTop: state.top != null,
         extrasCount: state.extras.length,
       ),
     );
@@ -117,6 +129,17 @@ class CaptureController extends StateNotifier<CaptureState> {
     final updated = Map<String, File?>.from(state.cardinals);
     updated[view] = null;
     state = state.copyWith(cardinals: updated);
+    _recomputeQuality();
+    _persistLater();
+  }
+
+  void setTop(File file) {
+    _setTargetFile(AppConstants.topView, file);
+  }
+
+  void removeTop() {
+    if (state.top == null) return;
+    state = state.copyWith(clearTop: true);
     _recomputeQuality();
     _persistLater();
   }
@@ -246,6 +269,8 @@ class CaptureController extends StateNotifier<CaptureState> {
         extras: [...state.extras, file],
         clearError: true,
       );
+    } else if (target == AppConstants.topView) {
+      state = state.copyWith(top: file, clearError: true);
     } else {
       final updated = Map<String, File?>.from(state.cardinals);
       updated[target] = file;
@@ -256,7 +281,9 @@ class CaptureController extends StateNotifier<CaptureState> {
   }
 
   bool _isValidTarget(String? target) {
-    return target == 'extra' || AppConstants.cardinalViews.contains(target);
+    return target == 'extra' ||
+        target == AppConstants.topView ||
+        AppConstants.cardinalViews.contains(target);
   }
 
   String _pickerErrorMessage(ImageSource source, Object error) {
@@ -271,6 +298,7 @@ class CaptureController extends StateNotifier<CaptureState> {
         for (final entry in state.cardinals.entries)
           if (entry.value != null) entry.key: entry.value!.path,
       },
+      topPath: state.top?.path,
       extraPaths: state.extras.map((file) => file.path).toList(growable: false),
       pendingTarget: _pendingTarget,
       productId: state.productId,

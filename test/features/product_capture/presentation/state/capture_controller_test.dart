@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:perfume_3d_mvp/core/constants/app_constants.dart';
 import 'package:perfume_3d_mvp/features/product_capture/data/capture_repository.dart';
 import 'package:perfume_3d_mvp/features/product_capture/data/capture_session_store.dart';
 import 'package:perfume_3d_mvp/features/product_capture/presentation/state/capture_controller.dart';
@@ -86,6 +87,35 @@ void main() {
     expect(controller.state.error, contains('ainda está aberta'));
   });
 
+  test('capturar no alvo top grava o topo sem alterar cardinalCount', () async {
+    final original = await _temporaryImage(temporaryDirectory, 'top.jpg');
+    final picker = _FakeImagePicker()..nextFile = XFile(original.path);
+    final store = _MemoryCaptureSessionStore();
+    final controller = _controller(picker: picker, store: store);
+    await controller.ready;
+
+    await controller.pickFromGalleryForView(AppConstants.topView);
+
+    expect(controller.state.top?.path, original.path);
+    expect(controller.state.cardinalCount, 0);
+    expect(store.draft.topPath, original.path);
+  });
+
+  test('removeTop limpa somente a foto do topo', () async {
+    final top = await _temporaryImage(temporaryDirectory, 'top.jpg');
+    final controller = _controller(
+      picker: _FakeImagePicker(),
+      store: _MemoryCaptureSessionStore(),
+    );
+    await controller.ready;
+
+    controller.setTop(top);
+    controller.removeTop();
+
+    expect(controller.state.top, isNull);
+    expect(controller.state.cardinalCount, 0);
+  });
+
   test('restaura sessão e associa lost data à vista persistida', () async {
     final front = await _temporaryImage(temporaryDirectory, 'front.jpg');
     final recovered = await _temporaryImage(temporaryDirectory, 'right.jpg');
@@ -112,6 +142,30 @@ void main() {
     expect(controller.state.cardinals['right']?.path, recovered.path);
     expect(store.draft.pendingTarget, isNull);
     expect(store.draft.cardinalPaths['right'], recovered.path);
+  });
+
+  test('top é alvo válido na recuperação de lost data', () async {
+    final recovered = await _temporaryImage(temporaryDirectory, 'top.jpg');
+    final store = _MemoryCaptureSessionStore(
+      const CaptureSessionDraft(pendingTarget: AppConstants.topView),
+    );
+    final picker = _FakeImagePicker()
+      ..lostData = LostDataResponse(
+        file: XFile(recovered.path),
+        type: RetrieveType.image,
+      );
+
+    final controller = _controller(
+      picker: picker,
+      store: store,
+      enableLostDataRecovery: true,
+    );
+    await controller.ready;
+
+    expect(controller.state.top?.path, recovered.path);
+    expect(controller.state.cardinalCount, 0);
+    expect(controller.state.error, isNull);
+    expect(store.draft.topPath, recovered.path);
   });
 
   test('não atribui lost data a uma vista desconhecida', () async {
@@ -155,6 +209,54 @@ void main() {
     expect(jobId, 'job-test');
     expect(repository.lastProductId, 42);
     expect(repository.lastViews, ['front', 'left', 'back', 'right']);
+  });
+
+  test('flattenForUpload posiciona top entre cardeais e extras', () async {
+    final controller = _controller(
+      picker: _FakeImagePicker(),
+      store: _MemoryCaptureSessionStore(),
+    );
+    await controller.ready;
+    for (final view in AppConstants.cardinalViews) {
+      controller.setCardinal(
+        view,
+        await _temporaryImage(temporaryDirectory, '$view.jpg'),
+      );
+    }
+    controller.setTop(
+      await _temporaryImage(temporaryDirectory, 'top.jpg'),
+    );
+    controller.addExtra(
+      await _temporaryImage(temporaryDirectory, 'extra.jpg'),
+    );
+
+    final upload = controller.state.flattenForUpload();
+
+    expect(upload.views, [
+      'front',
+      'left',
+      'back',
+      'right',
+      'top',
+      'extra',
+    ]);
+  });
+
+  test('canSubmit é verdadeiro com 4 cardeais e sem topo', () async {
+    final controller = _controller(
+      picker: _FakeImagePicker(),
+      store: _MemoryCaptureSessionStore(),
+    );
+    await controller.ready;
+    for (final view in AppConstants.cardinalViews) {
+      controller.setCardinal(
+        view,
+        await _temporaryImage(temporaryDirectory, '$view.jpg'),
+      );
+    }
+
+    expect(controller.state.top, isNull);
+    expect(controller.state.canSubmit, isTrue);
   });
 }
 

@@ -16,7 +16,7 @@ abstract class CaptureRepository {
   /// Envia as imagens com rótulos de vista paralelos.
   ///
   /// [views] deve ter o mesmo tamanho de [images]. Cada valor é um dos:
-  /// `front`, `left`, `back`, `right`, `extra` ou `''` (sem rótulo).
+  /// `front`, `left`, `back`, `right`, `top`, `extra` ou `''` (sem rótulo).
   /// Quando omitido ou vazio, o backend usa CLIPViewRouter.
   Future<UploadResult> uploadImages(
     List<File> images, {

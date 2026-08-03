@@ -7,19 +7,22 @@ import 'package:path_provider/path_provider.dart';
 class CaptureSessionDraft {
   const CaptureSessionDraft({
     this.cardinalPaths = const {},
+    this.topPath,
     this.extraPaths = const [],
     this.pendingTarget,
     this.productId,
   });
 
   final Map<String, String> cardinalPaths;
+  final String? topPath;
   final List<String> extraPaths;
   final String? pendingTarget;
   final int? productId;
 
   Map<String, Object?> toJson() => {
-        'version': 2,
+        'version': 3,
         'cardinals': cardinalPaths,
+        'top': topPath,
         'extras': extraPaths,
         'pendingTarget': pendingTarget,
         'productId': productId,
@@ -34,6 +37,7 @@ class CaptureSessionDraft {
               (key, value) => MapEntry(key.toString(), value.toString()),
             )
           : const {},
+      topPath: json['top'] is String ? json['top'] as String : null,
       extraPaths: rawExtras is List
           ? rawExtras.whereType<String>().toList(growable: false)
           : const [],
