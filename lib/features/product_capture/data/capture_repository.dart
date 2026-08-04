@@ -18,10 +18,14 @@ abstract class CaptureRepository {
   /// [views] deve ter o mesmo tamanho de [images]. Cada valor é um dos:
   /// `front`, `left`, `back`, `right`, `top`, `extra` ou `''` (sem rótulo).
   /// Quando omitido ou vazio, o backend usa CLIPViewRouter.
+  ///
+  /// [material] é `glass`, `opaque` ou null. Quando informado, o backend usa
+  /// a resposta direto em vez de classificar as fotos pelo CLIP.
   Future<UploadResult> uploadImages(
     List<File> images, {
     List<String>? views,
     int? productId,
+    String? material,
     void Function(double progress)? onProgress,
   });
 }
@@ -35,6 +39,7 @@ class CaptureRepositoryImpl implements CaptureRepository {
     List<File> images, {
     List<String>? views,
     int? productId,
+    String? material,
     void Function(double progress)? onProgress,
   }) async {
     if (views != null && views.length != images.length) {
@@ -57,6 +62,9 @@ class CaptureRepositoryImpl implements CaptureRepository {
       }
       if (productId != null) {
         formMap['productId'] = productId;
+      }
+      if (material != null) {
+        formMap['material'] = material;
       }
       final formData = FormData.fromMap(formMap);
 

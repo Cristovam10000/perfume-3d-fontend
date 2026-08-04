@@ -31,6 +31,14 @@ class CaptureState {
   final String? error;
   final int? productId;
 
+  /// Material do frasco escolhido pelo usuário: `glass`, `opaque` ou null.
+  ///
+  /// Null significa "não informado" — o backend cai no classificador CLIP.
+  /// A pergunta existe porque esse classificador não separa as duas classes de
+  /// forma confiável: medido em 6 frascos reais, um de vidro pontuou abaixo de
+  /// um opaco, então nenhum limiar acerta os dois. Um toque acerta sempre.
+  final String? material;
+
   const CaptureState({
     this.cardinals = const {
       'front': null,
@@ -46,6 +54,7 @@ class CaptureState {
     this.uploadProgress = 0,
     this.error,
     this.productId,
+    this.material,
   });
 
   CaptureState copyWith({
@@ -61,6 +70,8 @@ class CaptureState {
     bool clearError = false,
     int? productId,
     bool clearProductId = false,
+    String? material,
+    bool clearMaterial = false,
   }) {
     return CaptureState(
       cardinals: cardinals ?? this.cardinals,
@@ -72,6 +83,7 @@ class CaptureState {
       uploadProgress: uploadProgress ?? this.uploadProgress,
       error: clearError ? null : (error ?? this.error),
       productId: clearProductId ? null : (productId ?? this.productId),
+      material: clearMaterial ? null : (material ?? this.material),
     );
   }
 

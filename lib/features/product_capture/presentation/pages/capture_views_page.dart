@@ -93,6 +93,12 @@ class _CaptureViewsPageState extends ConsumerState<CaptureViewsPage> {
           if (state.qualityMessages.isNotEmpty)
             QualityBanner(message: state.qualityMessages.first),
           const SizedBox(height: 12),
+          _MaterialSection(
+            selecionado: state.material,
+            disabled: state.uploading || selectingImage,
+            onChanged: controller.setMaterial,
+          ),
+          const SizedBox(height: 20),
           GridView.count(
             crossAxisCount: 2,
             mainAxisSpacing: 12,
@@ -228,9 +234,24 @@ class _TopSection extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         Text(
-          'Mantenha a frente do frasco virada para a base do enquadramento. '
-          'Posicione a câmera perpendicular à tampa e use luz difusa; sol '
-          'direto vira reflexo permanente na textura.',
+          'Enquadre só a TAMPA, com a câmera direto acima dela.',
+          style: TextStyle(
+            color: scheme.onSurfaceVariant,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Um exemplo visual, e não só texto: a instrução escrita já existia e
+        // ainda assim vieram fotos oblíquas do frasco inteiro. O backend agora
+        // mede a silhueta e descarta essas fotos, então a orientação precisa
+        // ser difícil de ignorar.
+        const _ExemploTopo(),
+        const SizedBox(height: 8),
+        Text(
+          'Mantenha a frente do frasco virada para a base do enquadramento — '
+          'é isso que faz o logo da tampa cair na posição certa no modelo. '
+          'Use luz difusa; sol direto vira reflexo permanente na textura.',
           style: TextStyle(
             color: scheme.onSurfaceVariant,
             fontSize: 12,
@@ -247,6 +268,144 @@ class _TopSection extends StatelessWidget {
             onCapture: onCapture,
             onClear: onClear,
           ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Comparação visual certo/errado para a foto do topo.
+///
+/// A silhueta é o que o backend mede: compacta (vista de cima) passa, alongada
+/// (vista de lado) é descartada. Mostrar as duas formas comunica o critério sem
+/// precisar explicá-lo.
+class _ExemploTopo extends StatelessWidget {
+  const _ExemploTopo();
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    Widget cartao({
+      required bool certo,
+      required double largura,
+      required double altura,
+      required String legenda,
+    }) {
+      final cor = certo ? scheme.primary : scheme.error;
+      return Expanded(
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            color: cor.withValues(alpha: 0.06),
+            border: Border.all(color: cor.withValues(alpha: 0.35)),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Column(
+            children: [
+              SizedBox(
+                height: 54,
+                child: Center(
+                  child: Container(
+                    width: largura,
+                    height: altura,
+                    decoration: BoxDecoration(
+                      color: cor.withValues(alpha: 0.25),
+                      border: Border.all(color: cor),
+                      borderRadius: BorderRadius.circular(certo ? 20 : 6),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(certo ? Icons.check_circle : Icons.cancel,
+                      size: 14, color: cor),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      legenda,
+                      style: TextStyle(fontSize: 11, color: cor),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        cartao(
+          certo: true,
+          largura: 46,
+          altura: 46,
+          legenda: 'só a tampa,\nvista de cima',
+        ),
+        const SizedBox(width: 8),
+        cartao(
+          certo: false,
+          largura: 22,
+          altura: 54,
+          legenda: 'o frasco inteiro,\nde lado',
+        ),
+      ],
+    );
+  }
+}
+
+/// Seleção do material do frasco (vidro / opaco).
+///
+/// Opcional: sem escolha, o backend classifica pelas fotos com CLIP. A pergunta
+/// existe porque esse classificador não separa as classes de forma confiável —
+/// medido em 6 frascos reais, um de vidro pontuou abaixo de um opaco.
+class _MaterialSection extends StatelessWidget {
+  const _MaterialSection({
+    required this.selecionado,
+    required this.disabled,
+    required this.onChanged,
+  });
+
+  final String? selecionado;
+  final bool disabled;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Material do frasco (opcional)',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Ajuda o acabamento do modelo 3D. Sem resposta, o sistema tenta '
+          'adivinhar pelas fotos — e às vezes erra.',
+          style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 12),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            for (final entry in AppConstants.materialLabels.entries)
+              ChoiceChip(
+                label: Text(entry.value),
+                selected: selecionado == entry.key,
+                // Tocar na opção já marcada desmarca — volta para "adivinhar".
+                onSelected: disabled
+                    ? null
+                    : (marcado) => onChanged(marcado ? entry.key : null),
+              ),
+          ],
         ),
       ],
     );

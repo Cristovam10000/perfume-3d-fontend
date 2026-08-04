@@ -40,6 +40,20 @@ class AppConstants {
   static const int maxExtras = 2; // até 2 fotos extras opcionais
   static const int maxImages = 7; // cardeais + topo opcional + extras
 
+  // ---- Material do frasco ----
+  // Enviado no campo `material` do POST /captures e usado pelo backend para
+  // decidir entre aplicar vidro PBR ou preservar a textura pintada pela IA.
+  // A pergunta existe porque o classificador CLIP do backend não separa as
+  // duas classes: medido em 6 frascos reais, um de vidro pontuou abaixo de um
+  // opaco, então nenhum limiar acerta os dois. Não enviar o campo mantém o
+  // comportamento antigo (o backend classifica sozinho).
+  static const String materialGlass = 'glass';
+  static const String materialOpaque = 'opaque';
+  static const Map<String, String> materialLabels = {
+    materialGlass: 'Vidro transparente',
+    materialOpaque: 'Opaco',
+  };
+
   // Os JPEGs originais continuam disponíveis para upload. Estes limites
   // controlam apenas a resolução decodificada dos previews na interface.
   static const int cardinalPreviewCacheWidth = 768;

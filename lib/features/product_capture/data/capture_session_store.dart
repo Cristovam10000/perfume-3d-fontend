@@ -11,6 +11,7 @@ class CaptureSessionDraft {
     this.extraPaths = const [],
     this.pendingTarget,
     this.productId,
+    this.material,
   });
 
   final Map<String, String> cardinalPaths;
@@ -19,13 +20,17 @@ class CaptureSessionDraft {
   final String? pendingTarget;
   final int? productId;
 
+  /// `glass`, `opaque` ou null (não informado).
+  final String? material;
+
   Map<String, Object?> toJson() => {
-        'version': 3,
+        'version': 4,
         'cardinals': cardinalPaths,
         'top': topPath,
         'extras': extraPaths,
         'pendingTarget': pendingTarget,
         'productId': productId,
+        'material': material,
       };
 
   factory CaptureSessionDraft.fromJson(Map<String, dynamic> json) {
@@ -46,6 +51,9 @@ class CaptureSessionDraft {
           : null,
       productId:
           json['productId'] is num ? (json['productId'] as num).toInt() : null,
+      // Lido com tolerância a ausência: rascunhos gravados nas versões 2 e 3
+      // não têm a chave e precisam continuar carregando.
+      material: json['material'] is String ? json['material'] as String : null,
     );
   }
 }

@@ -73,6 +73,8 @@ class CaptureController extends StateNotifier<CaptureState> {
       state = state.copyWith(
         productId: draft.productId,
         clearProductId: draft.productId == null,
+        material: draft.material,
+        clearMaterial: draft.material == null,
       );
       _recomputeQuality();
       await recoverLostSelection();
@@ -110,6 +112,23 @@ class CaptureController extends StateNotifier<CaptureState> {
           );
     _recomputeQuality();
     await _persistDraftSafely();
+  }
+
+  /// Declara o material do frasco (`glass` / `opaque`) ou limpa a escolha.
+  ///
+  /// Sem escolha o backend classifica sozinho pelo CLIP — que erra, e é o
+  /// motivo desta pergunta existir. Tocar na opção já marcada desmarca.
+  void setMaterial(String? material) {
+    if (material != null &&
+        !AppConstants.materialLabels.containsKey(material)) {
+      state = state.copyWith(error: 'Material inválido: $material');
+      return;
+    }
+    state = state.copyWith(
+      material: material,
+      clearMaterial: material == null,
+    );
+    _persistLater();
   }
 
   void setCardinal(String view, File file) {
@@ -302,6 +321,7 @@ class CaptureController extends StateNotifier<CaptureState> {
       extraPaths: state.extras.map((file) => file.path).toList(growable: false),
       pendingTarget: _pendingTarget,
       productId: state.productId,
+      material: state.material,
     );
   }
 
@@ -359,6 +379,7 @@ class CaptureController extends StateNotifier<CaptureState> {
         upload.files,
         views: upload.views,
         productId: state.productId,
+        material: state.material,
         onProgress: (progress) {
           state = state.copyWith(uploadProgress: progress);
         },

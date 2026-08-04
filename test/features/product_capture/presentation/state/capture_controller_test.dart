@@ -258,6 +258,97 @@ void main() {
     expect(controller.state.top, isNull);
     expect(controller.state.canSubmit, isTrue);
   });
+
+  test('setMaterial persiste a escolha e envia no upload', () async {
+    final repository = _FakeCaptureRepository();
+    final store = _MemoryCaptureSessionStore();
+    final controller = _controller(
+      picker: _FakeImagePicker(),
+      store: store,
+      repository: repository,
+    );
+    await controller.ready;
+    controller.setMaterial(AppConstants.materialOpaque);
+    for (final view in AppConstants.cardinalViews) {
+      controller.setCardinal(
+        view,
+        await _temporaryImage(temporaryDirectory, '$view.jpg'),
+      );
+    }
+
+    expect(controller.state.material, 'opaque');
+    expect(store.draft.material, 'opaque');
+
+    await controller.submit();
+
+    expect(repository.lastMaterial, 'opaque');
+  });
+
+  test('setMaterial(null) volta a deixar o backend adivinhar', () async {
+    final repository = _FakeCaptureRepository();
+    final controller = _controller(
+      picker: _FakeImagePicker(),
+      store: _MemoryCaptureSessionStore(),
+      repository: repository,
+    );
+    await controller.ready;
+    controller.setMaterial(AppConstants.materialGlass);
+    controller.setMaterial(null);
+    for (final view in AppConstants.cardinalViews) {
+      controller.setCardinal(
+        view,
+        await _temporaryImage(temporaryDirectory, '$view.jpg'),
+      );
+    }
+
+    await controller.submit();
+
+    expect(controller.state.material, isNull);
+    expect(repository.lastMaterial, isNull);
+  });
+
+  test('material inválido não entra no estado', () async {
+    final controller = _controller(
+      picker: _FakeImagePicker(),
+      store: _MemoryCaptureSessionStore(),
+    );
+    await controller.ready;
+
+    controller.setMaterial('plastico');
+
+    expect(controller.state.material, isNull);
+    expect(controller.state.error, contains('Material inválido'));
+  });
+
+  test('material é opcional: canSubmit não depende dele', () async {
+    final controller = _controller(
+      picker: _FakeImagePicker(),
+      store: _MemoryCaptureSessionStore(),
+    );
+    await controller.ready;
+    for (final view in AppConstants.cardinalViews) {
+      controller.setCardinal(
+        view,
+        await _temporaryImage(temporaryDirectory, '$view.jpg'),
+      );
+    }
+
+    expect(controller.state.material, isNull);
+    expect(controller.state.canSubmit, isTrue);
+  });
+
+  test('restaura o material do rascunho', () async {
+    final store = _MemoryCaptureSessionStore();
+    store.draft = const CaptureSessionDraft(material: 'glass');
+    final controller = _controller(
+      picker: _FakeImagePicker(),
+      store: store,
+    );
+
+    await controller.ready;
+
+    expect(controller.state.material, 'glass');
+  });
 }
 
 CaptureController _controller({
@@ -359,16 +450,19 @@ class _MemoryCaptureSessionStore implements CaptureSessionStore {
 class _FakeCaptureRepository implements CaptureRepository {
   int? lastProductId;
   List<String>? lastViews;
+  String? lastMaterial;
 
   @override
   Future<UploadResult> uploadImages(
     List<File> images, {
     List<String>? views,
     int? productId,
+    String? material,
     void Function(double progress)? onProgress,
   }) async {
     lastProductId = productId;
     lastViews = views;
+    lastMaterial = material;
     return const UploadResult('job-test');
   }
 }

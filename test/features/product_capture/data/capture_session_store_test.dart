@@ -41,7 +41,9 @@ void main() {
     await store.save(draft);
     final restored = await store.load();
 
-    expect(draft.toJson()['version'], 3);
+    // v4 acrescentou `material`. As versões anteriores continuam carregando —
+    // há testes dedicados para v2 (sem `top`) e v3 (sem `material`).
+    expect(draft.toJson()['version'], 4);
     expect(imported.path, isNot(source.path));
     expect(imported.path, endsWith('.jpg'));
     expect(await imported.readAsBytes(), bytes);
@@ -76,6 +78,46 @@ void main() {
     expect(restored.extraPaths, ['extra.jpg']);
     expect(restored.pendingTarget, 'right');
     expect(restored.productId, 42);
+  });
+
+  test('material sobrevive ao round-trip do manifesto', () async {
+    await store.save(
+      const CaptureSessionDraft(
+        cardinalPaths: {'front': 'front.jpg'},
+        material: 'opaque',
+      ),
+    );
+
+    final restored = await store.load();
+
+    expect(restored.material, 'opaque');
+  });
+
+  test('manifesto version 3 sem material continua carregando', () async {
+    final draftDirectory = Directory(
+      '${temporaryDirectory.path}${Platform.pathSeparator}capture_draft',
+    );
+    await draftDirectory.create(recursive: true);
+    final manifest = File(
+      '${draftDirectory.path}${Platform.pathSeparator}session.json',
+    );
+    await manifest.writeAsString(
+      jsonEncode({
+        'version': 3,
+        'cardinals': {'front': 'front.jpg'},
+        'top': 'top.jpg',
+        'extras': <String>[],
+        'pendingTarget': null,
+        'productId': 7,
+      }),
+    );
+
+    final restored = await store.load();
+
+    expect(restored.cardinalPaths, {'front': 'front.jpg'});
+    expect(restored.topPath, 'top.jpg');
+    expect(restored.productId, 7);
+    expect(restored.material, isNull);
   });
 
   test('clear remove somente o rascunho privado da captura', () async {
