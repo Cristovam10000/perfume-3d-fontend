@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 
 import '../../../../app/router/app_routes.dart';
+import '../../../../core/constants/app_constants.dart';
 import '../../../../shared/widgets/app_scaffold.dart';
 import '../../../../shared/widgets/error_view.dart';
 import '../../../../shared/widgets/loading_view.dart';
@@ -46,6 +47,7 @@ class Product3DViewerPage extends ConsumerWidget {
               cameraControls: true,
               disableZoom: false,
               backgroundColor: Theme.of(context).colorScheme.surface,
+              relatedJs: AppConstants.dracoRelatedJs,
             ),
           ),
           Padding(

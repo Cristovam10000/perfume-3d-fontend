@@ -48,33 +48,13 @@ class Product3DPage extends ConsumerWidget {
                     ),
                   ),
                 ),
+                // O selo segue o modelo de verdade. Era fixo em "3D disponivel"
+                // e contradizia a tela: sem modelo, o placeholder aparecia
+                // embaixo de um selo verde dizendo que havia 3D.
                 Positioned(
                   left: 20,
                   top: 18,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.goodSoft,
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.circle, color: AppColors.good, size: 10),
-                        SizedBox(width: 8),
-                        Text(
-                          '3D disponivel',
-                          style: TextStyle(
-                            color: AppColors.good,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                  child: _SeloModelo(temModelo: produto.modelo3DPath != null),
                 ),
                 Positioned.fill(
                   top: 58,
@@ -91,6 +71,7 @@ class Product3DPage extends ConsumerWidget {
                           cameraControls: true,
                           disableZoom: false,
                           backgroundColor: Colors.transparent,
+                          relatedJs: AppConstants.dracoRelatedJs,
                         ),
                 ),
                 const Positioned(
@@ -180,6 +161,36 @@ class Product3DPage extends ConsumerWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SeloModelo extends StatelessWidget {
+  final bool temModelo;
+
+  const _SeloModelo({required this.temModelo});
+
+  @override
+  Widget build(BuildContext context) {
+    final cor = temModelo ? AppColors.good : AppColors.warn;
+    final fundo = temModelo ? AppColors.goodSoft : AppColors.warnSoft;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: fundo,
+        borderRadius: BorderRadius.circular(AppRadius.pill),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.circle, color: cor, size: 10),
+          const SizedBox(width: 8),
+          Text(
+            temModelo ? '3D disponivel' : 'Sem modelo 3D',
+            style: TextStyle(color: cor, fontWeight: FontWeight.w900),
           ),
         ],
       ),

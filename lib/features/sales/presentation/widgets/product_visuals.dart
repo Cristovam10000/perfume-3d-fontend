@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../app/theme/app_tokens.dart';
+import '../../../../core/constants/app_constants.dart';
 import '../../domain/sales_models.dart';
 
 class ProductBottlePreview extends StatelessWidget {
@@ -51,7 +52,22 @@ class ProductBottlePreview extends StatelessWidget {
               ),
             ),
           ),
-          if (showLabel)
+          // Render do modelo 3D real, quando o backend já gerou um. O PNG tem
+          // fundo transparente, então ele assenta sobre o gradiente da cor do
+          // frasco em vez de substituí-lo — e qualquer falha de rede cai de
+          // volta no gradiente sozinha, sem estado extra.
+          if (produto.previewImg != null)
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(width * 0.17),
+                child: Image.network(
+                  AppConstants.resolveBackendUrl(produto.previewImg!),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                ),
+              ),
+            ),
+          if (showLabel && produto.previewImg == null)
             Center(
               child: Container(
                 width: width * 0.62,
@@ -114,6 +130,24 @@ class ProductStagePreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = Color(produto.frascoColorValue);
+    // Com preview renderizado, mostra o modelo de verdade em vez do desenho
+    // vetorial genérico. Vale sobretudo aqui: esta tela aparece quando o
+    // `<model-viewer>` não tem GLB para carregar, e o desenho não se parecia
+    // em nada com o frasco.
+    if (produto.previewImg != null) {
+      return SizedBox(
+        height: 320,
+        child: Image.network(
+          AppConstants.resolveBackendUrl(produto.previewImg!),
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => _ilustracao(color),
+        ),
+      );
+    }
+    return _ilustracao(color);
+  }
+
+  Widget _ilustracao(Color color) {
     return SizedBox(
       height: 320,
       child: Stack(

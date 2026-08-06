@@ -29,6 +29,25 @@ class AppConstants {
     return parsed.toString();
   }
 
+  // ---- Decodificador Draco ----
+  // Os GLBs saem do backend comprimidos com KHR_draco_mesh_compression (77 MB
+  // -> 14 MB no frasco de referência). Para desempacotar, o model-viewer baixa
+  // um decodificador WASM — e por padrão o busca em gstatic.com, ou seja, na
+  // internet. Numa rede local sem saída (laboratório, sala de apresentação) o
+  // modelo não abriria, falha pior que o arquivo grande que a compressão veio
+  // resolver. O backend serve uma cópia em /draco/, e é para lá que apontamos.
+  static String get dracoDecoderUrl => resolveBackendUrl('/draco/');
+
+  /// JS injetado no `<model-viewer>` para redirecionar o decodificador.
+  ///
+  /// `whenDefined` é necessário: o `model-viewer.min.js` é carregado como
+  /// módulo com `defer`, então este script roda antes de o elemento existir.
+  static String get dracoRelatedJs => '''
+customElements.whenDefined('model-viewer').then(function () {
+  customElements.get('model-viewer').dracoDecoderLocation = '$dracoDecoderUrl';
+});
+''';
+
   // ---- Captura guiada (Hunyuan3D-2mv) ----
   // O modelo Hunyuan3D-2mv recebe as 4 vistas cardeais (front, left, back,
   // right). A vista `top` é opcional e não vai para o Hunyuan: o backend a
